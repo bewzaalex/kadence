@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KD-90 Mockup</title>
+<style>
+  :root { --bg: #1d1e20; --fg: #c9cbcd; --muted: #85888c; --key: #2c2d30; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { display: flex; gap: 28px; align-items: center; justify-content: center; min-height: 100%; padding: 12px 16px; box-sizing: border-box; flex-wrap: wrap; }
+  #device svg { height: min(96vh, 800px); width: auto; display: block; user-select: none; touch-action: none; filter: drop-shadow(0 18px 30px rgba(0,0,0,.55)); }
+  .btn { cursor: pointer; }
+  .slider, .dial { cursor: grab; }
+  aside { max-width: 300px; }
+  aside h1 { font-size: 15px; margin: 0 0 8px; }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+  kbd { background: var(--key); border-radius: 4px; padding: 1px 6px; font: 12px ui-monospace, monospace; }
+  table { border-collapse: collapse; } td { padding: 2px 8px 2px 0; vertical-align: top; }
+  #status { font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre-wrap; }
+  @media (max-width: 700px) { #device svg { width: 100%; height: auto; } }
+</style>
+</head>
+<body>
+<main>
+  <div id="device"></div>
+  <aside>
+    <h1>KD-90 — interactive mockup</h1>
+    <div>Drag the dial or use the mouse wheel. Drag the orange sliders. Click buttons.</div>
+    <h2>Keyboard</h2>
+    <table>
+      <tr><td><kbd>Space</kbd></td><td>START/STOP</td></tr>
+      <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>TEMPO/VALUE dial</td></tr>
+      <tr><td><kbd>T</kbd></td><td>TAP</td></tr>
+      <tr><td><kbd>L</kbd></td><td>LIGHT (hold 1.5 s: auto-off on/off)</td></tr>
+      <tr><td><kbd>M</kbd></td><td>MUTE</td></tr>
+      <tr><td><kbd>B</kbd> / <kbd>V</kbd></td><td>BEAT/PATTERN / VOICE</td></tr>
+      <tr><td><kbd>C</kbd> or Shift+click</td><td>COUNT IN (BEAT/PATTERN + VOICE)</td></tr>
+      <tr><td><kbd>K</kbd> or click MIC</td><td>Pad hit for Time Check</td></tr>
+    </table>
+    <h2>State</h2>
+    <div id="status"></div>
+  </aside>
+</main>
+<script src="panel.js"></script>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const wrap = (v, a, b) => (v < a ? b : v > b ? a : v);
+
+// ---------------- state ----------------
+const defMem = (i) => ({ tempo: 120, beatMode: 'beat', beat1: 4, beat2: 0, pattern: 1, voice: 1, sliders: [100, 100, 0, 0, 0], repeats: 0 });
+const memories = Array.from({ length: 50 }, (_, i) => defMem(i));
+Object.assign(memories[0], { repeats: 2 });
+Object.assign(memories[1], { tempo: 100, beat1: 3, sliders: [100, 80, 0, 0, 60], repeats: 2 });
+Object.assign(memories[2], { tempo: 140, beat1: 4, sliders: [100, 80, 60, 0, 0], repeats: 1 });
+const toneMemories = Array.from({ length: 10 }, () => ({ note: 69, pitch: 440 }));
+
+const S = {
+  power: true, backlight: false, autoLightOff: true, mode: 'metro',
+  tempo: 120, memory: 1, beatMode: 'beat', beat1: 4, beat2: 0, pattern: 1, voice: 1, countIn: 0,
+  edit: null, blink: true, edited: false, playing: false, beatPos: 1, muted: false,
+  sliders: [100, 100, 0, 0, 0, 80], levels: [5, 5, 0, 0, 0], vol: 80, pend: 8,
+  sens: 8, coach: 0, guide: 2, trig: false, timeCheck: null, showCoachName: true,
+  note: 69, pitch: 440, toneMemory: 1, toneOn: false,
+  loopRepeats: 2, loopCount: 0, writeTarget: 1,
+};
+let lastEdit = 0, lightTimer = null, dirty = true;
+const touch = () => { lastEdit = performance.now(); dirty = true; };
+
+function syncLevels() {
+  S.levels = S.sliders.slice(0, 5).map((v) => Math.round(v / 20));
+  S.vol = S.sliders[5];
+  if (master) master.gain.value = (S.vol / 100) ** 2;
+}
+function loadMemory(n) {
+  const m = memories[n - 1];
+  Object.assign(S, { tempo: m.tempo, beatMode: m.beatMode, beat1: m.beat1, beat2: m.beat2, pattern: m.pattern, voice: m.voice });
+  S.sliders = [...m.sliders, S.sliders[5]];
+  S.loopRepeats = m.repeats;
+  S.edited = false;
+  syncLevels(); updateSliders();
+}
+function storeMemory(n) {
+  Object.assign(memories[n - 1], { tempo: S.tempo, beatMode: S.beatMode, beat1: S.beat1, beat2: S.beat2, pattern: S.pattern, voice: S.voice, sliders: S.sliders.slice(0, 5) });
+}
+const edit = () => (S.edited = true);
+
+// ---------------- audio ----------------
+let ac = null, master = null;
+function audio() {
+  if (!ac) {
+    ac = new AudioContext();
+    master = ac.createGain();
+    master.connect(ac.destination);
+    syncLevels();
+  }
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+let noiseBuf = null;
+function noise() {
+  if (!noiseBuf) {
+    noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.1, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const n = ac.createBufferSource(); n.buffer = noiseBuf; return n;
+}
+function env(t, gain, dur) {
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t + 0.001);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  g.connect(master);
+  return g;
+}
+function osc(type, f, t, gain, dur) {
+  const o = ac.createOscillator(); o.type = type; o.frequency.value = f;
+  o.connect(env(t, gain, dur)); o.start(t); o.stop(t + dur + 0.02);
+}
+// kind: 0 accent, 1 beat, 2 subdivision, 3 count-in, 4 coach
+function click(t, kind, gain) {
+  if (gain <= 0 || S.muted) return;
+  const v = kind === 3 ? 3 : kind === 4 ? 0 : S.voice;
+  const f = [1.6, 1.0, 0.75][Math.min(kind, 2)];
+  switch (v) {
+    case 0: osc('triangle', 1200 * f, t, gain * 0.7, 0.05); break;
+    case 1: { // wind-up: woody click
+      const n = noise(); const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600 * f; bp.Q.value = 6;
+      n.connect(bp); bp.connect(env(t, gain * 3, 0.035)); n.start(t); n.stop(t + 0.05);
+      osc('sine', 600 * f, t, gain * 0.3, 0.02); break;
+    }
+    case 2: osc('sine', 1000 * f, t, gain * 0.8, 0.07); break;
+    case 3: osc('square', 2200 * f, t, gain * 0.25, 0.012); break;
+    case 4: osc('sawtooth', 320 * f, t, gain * 0.35, 0.12); break; // placeholder for recorded voice
+  }
+}
+function drum(t, part, gain) {
+  if (gain <= 0 || S.muted) return;
+  if (part === 'kick') { const o = ac.createOscillator(); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12); o.connect(env(t, gain, 0.2)); o.start(t); o.stop(t + 0.25); }
+  if (part === 'snare') { const n = noise(); const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1200; n.connect(hp); hp.connect(env(t, gain * 0.7, 0.12)); n.start(t); n.stop(t + 0.1); osc('triangle', 190, t, gain * 0.4, 0.08); }
+  if (part === 'hh') { const n = noise(); const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7000; n.connect(hp); hp.connect(env(t, gain * 0.5, 0.04)); n.start(t); n.stop(t + 0.06); }
+  if (part === 'o1') osc('sine', 420, t, gain * 0.5, 0.15);
+  if (part === 'o2') osc('square', 800, t, gain * 0.15, 0.03);
+}
+// 8-beat demo pattern on a 12-steps-per-beat grid (other 29 patterns: TBD in the app)
+const PATTERN_DEMO = { kick: [[0, 0], [2, 0], [2, 6]], snare: [[1, 0], [3, 0]], hh: [[0, 0], [0, 6], [1, 0], [1, 6], [2, 0], [2, 6], [3, 0], [3, 6]], o1: [], o2: [] };
+
+let tone = null;
+function toneSet(on) {
+  S.toneOn = on;
+  if (tone) { tone.g.gain.setTargetAtTime(0, ac.currentTime, 0.02); tone.o.stop(ac.currentTime + 0.1); tone = null; }
+  if (on) {
+    audio();
+    const o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.value = S.pitch * 2 ** ((S.note - 69) / 12);
+    const g = ac.createGain(); g.gain.value = 0; g.gain.setTargetAtTime(0.35, ac.currentTime, 0.02);
+    o.connect(g); g.connect(master); o.start(); tone = { o, g };
+  }
+  dirty = true;
+}
+
+// ---------------- sequencer ----------------
+const SUB = 12; // steps per beat (LCM of 2,3,4)
+const seq = { next: 0, step: 0, beat: 0, bar: 0, count: 0, startTempo: 120, dir: 1, maxTempo: 250, beatTimes: [], loopMem: 0 };
+const barLen = () => (S.beatMode === 'pattern' ? 4 : S.beat2 > 0 && seq.bar % 2 ? S.beat2 : S.beat1);
+
+function start() {
+  audio();
+  Object.assign(seq, { next: ac.currentTime + 0.06, step: 0, beat: 0, bar: 0, count: S.countIn, startTempo: S.tempo, dir: 1, beatTimes: [] });
+  if (S.mode === 'loop') {
+    seq.loopMem = firstLoopMem(0);
+    if (seq.loopMem < 0) return;
+    S.memory = seq.loopMem + 1; loadMemory(S.memory); S.loopCount = 0;
+  }
+  S.playing = true; S.edit = null; S.timeCheck = S.mode === 'coach' && S.coach === 0 ? null : S.timeCheck;
+  S.showCoachName = false;
+  dirty = true;
+}
+function stop() {
+  S.playing = false; S.pend = 8; S.beatPos = 1;
+  if (S.mode === 'coach') { S.tempo = seq.startTempo; S.showCoachName = true; }
+  dirty = true;
+}
+function firstLoopMem(from) {
+  for (let k = 0; k < 50; k++) { const i = (from + k) % 50; if (memories[i].repeats > 0) return i; }
+  return -1;
+}
+
+function schedule() {
+  if (!S.playing) return;
+  while (seq.next < ac.currentTime + 0.12) {
+    const t = seq.next, st = seq.step;
+    const sp = 60 / S.tempo / SUB;
+    if (seq.count > 0) {
+      if (st === 0) { click(t, 3, 0.8); seq.beatTimes.push([t, -seq.count, true]); }
+      if (st === SUB - 1) seq.count--;
+      seq.next += sp; seq.step = (st + 1) % SUB;
+      if (seq.count === 0 && seq.step === 0) seq.beat = 0;
+      continue;
+    }
+    const L = S.levels.map((l) => l / 5);
+    let quiet = 1;
+    if (S.mode === 'coach' && S.coach === 1 && Math.floor(seq.bar / 4) % 2 === 1) quiet = 0.15;
+    if (S.beatMode === 'pattern' && S.mode !== 'coach') {
+      const b = seq.beat % 4;
+      for (const [part, hits] of Object.entries(PATTERN_DEMO)) {
+        const lvl = { kick: L[0], snare: L[1], hh: L[2], o1: L[3], o2: L[4] }[part];
+        if (hits.some(([hb, hs]) => hb === b && hs === st)) drum(t, part, lvl);
+      }
+    } else {
+      const kind = S.mode === 'coach' ? 4 : null;
+      if (st === 0) click(t, kind ?? (seq.beat === 0 ? 0 : 1), (seq.beat === 0 ? L[0] : L[1]) * quiet);
+      if (st === 6) click(t, kind ?? 2, L[2] * quiet);
+      if (st === 3 || st === 9) click(t, kind ?? 2, L[3] * quiet);
+      if (st === 4 || st === 8) click(t, kind ?? 2, L[4] * quiet);
+    }
+    if (st === 0) seq.beatTimes.push([t, seq.beat + 1, seq.beat === 0]);
+    seq.next += sp;
+    seq.step = (st + 1) % SUB;
+    if (seq.step === 0) onBeatEnd();
+  }
+}
+function onBeatEnd() {
+  seq.beat++;
+  // coach: gradual up/down, 1 BPM every 2 beats (every 2 bars for patterns)
+  if (S.mode === 'coach' && S.coach === 2 && seq.beat % 2 === 0) bumpTempo(1);
+  if (seq.beat >= barLen()) {
+    seq.beat = 0; seq.bar++;
+    if (S.mode === 'coach' && S.coach === 3 && seq.bar % 4 === 0) bumpTempo(5);
+    if (S.mode === 'loop') {
+      S.loopCount++;
+      if (S.loopCount >= memories[seq.loopMem].repeats) {
+        seq.loopMem = firstLoopMem(seq.loopMem + 1);
+        S.memory = seq.loopMem + 1; loadMemory(S.memory); S.loopCount = 0;
+      }
+    }
+  }
+}
+function bumpTempo(d) {
+  S.tempo += d * seq.dir;
+  if (S.tempo >= seq.maxTempo) { S.tempo = seq.maxTempo; seq.dir = -1; }
+  if (S.tempo <= seq.startTempo) { S.tempo = seq.startTempo; seq.dir = 1; }
+}
+
+// pad hit for Time Check
+function padHit() {
+  if (!S.power || S.mode !== 'coach') return;
+  S.trig = true; setTimeout(() => { S.trig = false; dirty = true; }, 120);
+  if (S.playing && S.coach === 0 && ac) {
+    const now = ac.currentTime, bd = 60 / S.tempo;
+    const near = seq.beatTimes.filter((b) => b[1] > 0).reduce((a, b) => (Math.abs(b[0] - now) < Math.abs(a[0] - now) ? b : a), [Infinity]);
+    const d = (now - near[0]) / bd; // >0 late (behind), <0 early (ahead)
+    const tol = [0.06, 0.04, 0.025][S.guide - 1];
+    const k = Math.min(3, Math.floor(Math.abs(d) / tol));
+    S.timeCheck = 3 + (d > 0 ? -k : k);
+  }
+  dirty = true;
+}
+
+// ---------------- dial ----------------
+function dialStep(n) {
+  if (!S.power) return;
+  touch();
+  switch (S.edit) {
+    case 'memory':
+      if (S.mode === 'tune') { S.toneMemory = wrap(S.toneMemory + n, 1, 10); Object.assign(S, toneMemories[S.toneMemory - 1]); }
+      else if (!(S.mode === 'loop' && S.playing)) { S.memory = wrap(S.memory + n, 1, 50); loadMemory(S.memory); }
+      return;
+    case 'write': S.writeTarget = wrap(S.writeTarget + n, 1, S.mode === 'tune' ? 10 : 50);
+      if (S.mode === 'tune') S.toneMemory = S.writeTarget; else S.memory = S.writeTarget;
+      return;
+    case 'beat': {
+      // dial runs BEAT 1..9 then PATTERN 1..30
+      let idx = S.beatMode === 'beat' ? S.beat1 : 9 + S.pattern;
+      idx = clamp(idx + n, 1, 39);
+      if (idx <= 9) { S.beatMode = 'beat'; S.beat1 = idx; } else { S.beatMode = 'pattern'; S.pattern = idx - 9; }
+      edit(); return;
+    }
+    case 'beat2': S.beat2 = clamp(S.beat2 + n, 0, 9); edit(); return;
+    case 'voice': S.voice = clamp(S.voice + n, 1, 4); edit(); return;
+    case 'countin': S.countIn = clamp(S.countIn + n, 1, 8); return;
+    case 'sens': S.sens = clamp(S.sens + n, 1, 16); return;
+    case 'guide': S.guide = clamp(S.guide + n, 1, 3); return;
+    case 'pitch': S.pitch = clamp(S.pitch + n, 438, 445); if (S.toneOn) toneSet(true); return;
+  }
+  if (S.mode === 'tune') { S.note = clamp(S.note + n, 36, 95); if (S.toneOn) toneSet(true); return; }
+  if (S.mode === 'loop') { if (!S.playing) { S.loopRepeats = clamp(S.loopRepeats + n, 0, 255); memories[S.memory - 1].repeats = S.loopRepeats; } return; }
+  if (S.mode === 'midi') return;
+  S.tempo = clamp(S.tempo + n, 30, 250);
+  if (S.mode === 'coach') { seq.startTempo = S.tempo; seq.maxTempo = 250; S.showCoachName = false; }
+  else edit();
+}
+
+// ---------------- buttons ----------------
+const held = new Set();
+let tapTimes = [];
+function press(id, ev = {}) {
+  if (id !== 'POWER' && !S.power) return;
+  touch();
+  if (id !== 'LIGHT' && S.edit === 'tempo') S.edit = null;
+  const combo = ev.shiftKey || (id === 'BEAT' && held.has('VOICE')) || (id === 'VOICE' && held.has('BEAT'));
+  switch (id) {
+    case 'POWER':
+      S.power = !S.power;
+      if (!S.power) { stop(); toneSet(false); S.backlight = false; S.countIn = 0; S.edit = null; }
+      else { S.mode = 'metro'; S.muted = false; }
+      break;
+    case 'LIGHT':
+      S.backlight = !S.backlight;
+      clearTimeout(lightTimer);
+      if (S.backlight && S.autoLightOff) lightTimer = setTimeout(() => { S.backlight = false; dirty = true; }, 5000);
+      break;
+    case 'MUTE':
+      if (S.mode === 'tune') toneSet(!S.toneOn); else S.muted = !S.muted;
+      break;
+    case 'MEMORY':
+      if (S.mode === 'midi' && S.playing) break;
+      S.edit = S.edit === 'memory' ? null : 'memory';
+      break;
+    case 'WRITE':
+      if (S.mode === 'coach' && S.playing && S.coach >= 2) { seq.maxTempo = S.tempo; seq.dir = -1; break; }
+      if (S.edit === 'write') {
+        if (S.mode === 'tune') toneMemories[S.writeTarget - 1] = { note: S.note, pitch: S.pitch };
+        else storeMemory(S.writeTarget);
+        S.edited = false; S.edit = null;
+      } else { S.edit = 'write'; S.writeTarget = S.mode === 'tune' ? S.toneMemory : S.memory; }
+      break;
+    case 'MIDI':
+      // MIDI IN is out of scope: kept as a panel control only (toggles the indicator)
+      stop(); S.mode = S.mode === 'midi' ? 'metro' : 'midi'; S.edit = null;
+      break;
+    case 'TEMPO': toneSet(false); if (S.mode !== 'metro') { stop(); S.mode = 'metro'; } S.edit = 'tempo';
+      setTimeout(() => { if (S.edit === 'tempo') { S.edit = null; dirty = true; } }, 1500);
+      break;
+    case 'LOOP': stop(); toneSet(false); S.mode = 'loop'; S.edit = null; S.loopRepeats = memories[S.memory - 1].repeats; S.loopCount = 0; break;
+    case 'TUNE': stop(); if (S.mode === 'tune') S.edit = null; else { S.mode = 'tune'; S.edit = null; Object.assign(S, toneMemories[S.toneMemory - 1]); } break;
+    case 'PITCH': if (S.mode !== 'tune') { stop(); S.mode = 'tune'; } S.edit = 'pitch'; break;
+    case 'COACH':
+      toneSet(false);
+      if (S.playing && S.mode === 'coach') { stop(); break; }
+      stop();
+      if (S.mode !== 'coach') { S.mode = 'coach'; S.coach = 0; seq.startTempo = S.tempo; } else S.coach = (S.coach + 1) % 4;
+      S.edit = null; S.showCoachName = true; S.timeCheck = null;
+      break;
+    case 'TRIG':
+      if (S.mode !== 'coach') { stop(); toneSet(false); S.mode = 'coach'; S.coach = 0; S.showCoachName = true; S.edit = 'sens'; break; }
+      if (S.playing) { stop(); break; }
+      S.edit = S.edit === null ? 'sens' : S.edit === 'sens' ? 'guide' : null;
+      break;
+    case 'BEAT':
+      if (combo) { S.edit = S.countIn ? null : 'countin'; S.countIn = S.countIn ? 0 : 4; break; }
+      if (S.mode === 'tune' || S.mode === 'coach') { stop(); S.mode = 'metro'; }
+      S.edit = S.edit === 'beat' && S.beatMode === 'beat' ? 'beat2' : 'beat';
+      break;
+    case 'VOICE':
+      if (combo) { S.edit = S.countIn ? null : 'countin'; S.countIn = S.countIn ? 0 : 4; break; }
+      if (S.mode === 'tune' || S.mode === 'coach') { stop(); S.mode = 'metro'; }
+      S.beatMode = 'beat'; S.edit = 'voice';
+      break;
+    case 'TAP': {
+      if (!['metro', 'coach'].includes(S.mode)) break;
+      const now = performance.now();
+      tapTimes = tapTimes.filter((x) => now - x < 2100).concat(now).slice(-5);
+      if (tapTimes.length >= 2) {
+        const avg = (tapTimes[tapTimes.length - 1] - tapTimes[0]) / (tapTimes.length - 1);
+        S.tempo = clamp(Math.round(60000 / avg), 30, 250);
+        if (S.mode === 'coach') { seq.startTempo = S.tempo; seq.maxTempo = 250; } else edit();
+      }
+      break;
+    }
+    case 'START':
+      if (S.edit === 'write') { S.edit = null; break; }
+      if (S.mode === 'tune') { toneSet(!S.toneOn); break; }
+      if (S.mode === 'midi') break;
+      S.playing ? stop() : start();
+      break;
+  }
+  dirty = true;
+}
+
+// ---------------- DOM ----------------
+$('#device').innerHTML = KD90.panel(S);
+const svg = $('#device svg'), lcdEl = $('#lcd'), dialEl = $('#dialHit');
+const knurlEl = $('#dialKnurl'), faceEl = $('#dialFace');
+const led1 = $('#led1'), led2 = $('#led2');
+const toSvg = (e) => { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
+
+function updateSliders() {
+  svg.querySelectorAll('.slider').forEach((g) => {
+    const i = +g.dataset.slider;
+    g.setAttribute('transform', `translate(0,${KD90.sliderCapY(S.sliders[i]).toFixed(1)})`);
+  });
+}
+
+svg.querySelectorAll('.btn').forEach((b) => {
+  let holdT = null;
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); b.classList.add('down'); held.add(b.dataset.btn);
+    if (b.dataset.btn === 'LIGHT') holdT = setTimeout(() => { S.autoLightOff = !S.autoLightOff; holdT = 'fired'; dirty = true; }, 1500);
+    else press(b.dataset.btn, e);
+  });
+  const up = () => {
+    if (!b.classList.contains('down')) return;
+    b.classList.remove('down'); held.delete(b.dataset.btn);
+    if (b.dataset.btn === 'LIGHT') { if (holdT !== 'fired') { clearTimeout(holdT); press('LIGHT'); } holdT = null; }
+  };
+  b.addEventListener('pointerup', up); b.addEventListener('pointerleave', up);
+});
+
+// sliders
+let dragSlider = null;
+svg.querySelectorAll('.slider').forEach((g) => g.addEventListener('pointerdown', (e) => { dragSlider = +g.dataset.slider; g.setPointerCapture(e.pointerId); }));
+svg.addEventListener('pointermove', (e) => {
+  if (dragSlider === null) return;
+  const y = toSvg(e).y;
+  const v = clamp(((KD90.SL_BOT - 14 - y) / (KD90.SL_BOT - KD90.SL_TOP - 28)) * 100, 0, 100);
+  S.sliders[dragSlider] = Math.round(v);
+  if (dragSlider < 5 && S.levels[dragSlider] !== Math.round(v / 20) && ['metro', 'loop'].includes(S.mode)) edit();
+  syncLevels(); updateSliders(); dirty = true;
+});
+svg.addEventListener('pointerup', () => (dragSlider = null));
+
+// dial: rotate by drag (one step per 12°), or wheel
+let dialAngle = 0, dragAngle = null, acc = 0;
+const [DCX, DCY] = KD90.DIAL;
+const angleOf = (e) => { const p = toSvg(e); return (Math.atan2(p.y - DCY, p.x - DCX) * 180) / Math.PI; };
+function turn(deg) {
+  dialAngle += deg; acc += deg;
+  // only the physical features move; light, shadows and reflections stay fixed
+  knurlEl.innerHTML = KD90.dialKnurl(dialAngle);
+  faceEl.innerHTML = KD90.dialFace(dialAngle);
+  while (Math.abs(acc) >= 12) { const s = Math.sign(acc); acc -= 12 * s; dialStep(s); }
+}
+dialEl.addEventListener('pointerdown', (e) => { dragAngle = angleOf(e); dialEl.setPointerCapture(e.pointerId); });
+dialEl.addEventListener('pointermove', (e) => {
+  if (dragAngle === null) return;
+  const a = angleOf(e); let d = a - dragAngle; if (d > 180) d -= 360; if (d < -180) d += 360;
+  dragAngle = a; turn(d);
+});
+dialEl.addEventListener('pointerup', () => (dragAngle = null));
+svg.addEventListener('wheel', (e) => { e.preventDefault(); turn(e.deltaY < 0 ? 12 : -12); }, { passive: false });
+
+// mic slots = pad
+svg.addEventListener('pointerdown', (e) => { const p = toSvg(e); if (p.x > 350 && p.x < 390 && p.y > 575 && p.y < 615) padHit(); });
+
+// keyboard
+const KEYS = { ' ': 'START', t: 'TAP', m: 'MUTE', b: 'BEAT', v: 'VOICE' };
+let lHold = null;
+addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k === 'arrowup' || k === 'arrowright') { turn(12); e.preventDefault(); }
+  else if (k === 'arrowdown' || k === 'arrowleft') { turn(-12); e.preventDefault(); }
+  else if (k === 'c') press('BEAT', { shiftKey: true });
+  else if (k === 'k') padHit();
+  else if (k === 'l') lHold = setTimeout(() => { S.autoLightOff = !S.autoLightOff; lHold = 'fired'; dirty = true; }, 1500);
+  else if (KEYS[k]) { e.preventDefault(); held.add(KEYS[k]); press(KEYS[k], e); }
+});
+addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  if (KEYS[k]) held.delete(KEYS[k]);
+  if (k === 'l') { if (lHold !== 'fired') { clearTimeout(lHold); press('LIGHT'); } lHold = null; }
+});
+
+// ---------------- render loop ----------------
+setInterval(() => { S.blink = !S.blink; if (S.edit) dirty = true; }, 500);
+setInterval(() => { if (ac) schedule(); }, 20);
+setInterval(() => {
+  if (S.edit && !['write', 'countin'].includes(S.edit) && performance.now() - lastEdit > 6000) { S.edit = null; dirty = true; }
+}, 500);
+
+let ledOff = 0, lastPend = -1;
+function frame() {
+  if (S.playing && ac) {
+    const now = ac.currentTime;
+    const bt = seq.beatTimes;
+    while (bt.length > 1 && bt[1][0] <= now) bt.shift();
+    const cur = bt[0];
+    if (cur && cur[0] <= now) {
+      const bd = 60 / S.tempo;
+      const ph = clamp((now - cur[0]) / bd, 0, 1);
+      const dir = Math.abs(cur[1]) % 2 ? 1 : -1;
+      // pendulum hits the extreme on the beat and swings across in one beat
+      const pos = Math.cos(Math.PI * ph) * dir;
+      const idx = Math.round(((pos + 1) / 2) * (KD90.PEND_N - 1));
+      if (idx !== S.pend) { S.pend = idx; dirty = true; }
+      if (cur[2] !== 'done' && now - cur[0] < 0.08) {
+        (cur[1] === 1 || cur[1] < 0 ? led1 : led2).setAttribute('fill', cur[1] === 1 || cur[1] < 0 ? '#ff3b26' : '#46ff6a');
+        if (S.beatPos !== Math.abs(cur[1])) { S.beatPos = cur[1] > 0 ? cur[1] : S.beatPos; dirty = true; }
+        ledOff = now + 0.08;
+      }
+    }
+  }
+  if (!ac || ac.currentTime > ledOff || !S.playing) { led1.setAttribute('fill', '#3a2a2a'); led2.setAttribute('fill', '#2a3a2c'); }
+  if (dirty) {
+    lcdEl.innerHTML = KD90.lcd(S);
+    $('#status').textContent =
+      `mode    ${S.mode}${S.mode === 'coach' ? ' #' + (S.coach + 1) : ''}\nedit    ${S.edit ?? '-'}\nplaying ${S.playing}\n` +
+      `light   ${S.backlight ? 'on' : 'off'}  auto-off ${S.autoLightOff ? 'on' : 'off'}\nlevels  ${S.levels.join(' ')}  vol ${S.vol}`;
+    dirty = false;
+  }
+  requestAnimationFrame(frame);
+}
+syncLevels();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Kadence
+GenericName=Metronome
+Comment=Rhythm-trainer metronome with patterns, Rhythm Coach and tuner
+Exec=kadence
+Icon=io.github.bewzaalex.kadence
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=metronome;rhythm;tempo;drum;practice;music;
+StartupNotify=true
+StartupWMClass=io.github.bewzaalex.kadence

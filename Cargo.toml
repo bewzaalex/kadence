@@ -1,0 +1,30 @@
+[package]
+name = "kadence"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A rhythm-trainer metronome with a backlit LCD, rhythm sliders and a clicking tempo dial"
+repository = "https://github.com/bewzaalex/kadence"
+license = "MIT"
+
+[dependencies]
+cpal = "0.18"
+resvg = { version = "0.45", default-features = false, features = ["text", "raster-images"] }
+softbuffer = "0.4"
+winit = "0.30"
+
+# Linux: talk to PulseAudio / PipeWire (pipewire-pulse) directly, ALSA stays as the fallback
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18", features = ["pulseaudio"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Local softbuffer 0.4.8 with alpha kept on Wayland and macOS (transparent borderless window).
+# See vendor/softbuffer/KADENCE-PATCH.md.
+[patch.crates-io]
+softbuffer = { path = "vendor/softbuffer" }
