@@ -36,8 +36,17 @@ flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest ../../pa
 flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
 ```
 
-Until the first release the manifest builds the working copy (a `dir` source), so the linter
-reports that; the screenshot URLs also only work once the `v0.1.0` tag exists.
+Both should pass with no errors. The two URL options put the screenshots and icons in the catalog
+with their Flathub addresses, as Flathub's own builds do.
+
+The manifest builds the release tag, not your working copy. To try local changes, replace the `git`
+source of the `kadence` module with:
+
+```yaml
+- type: dir
+  path: ../..
+  skip: [.git, build, target, design/reference]
+```
 
 ## Crates
 
@@ -53,18 +62,7 @@ python3 packaging/flatpak/cargo-sources.py
    at the new tag. Update `docs/screenshots/` if the panel changed
    (`kadence --render docs/screenshots/backlit.png light`, `KADENCE_SCALE=1.5`).
 2. Tag it (`vX.Y.Z`) and publish a GitHub release.
-3. In the manifest, replace the `dir` source with the release tag:
-
-   ```yaml
-   - type: git
-     url: https://github.com/bewzaalex/kadence.git
-     tag: vX.Y.Z
-     commit: <full commit hash of the tag>
-     x-checker-data:
-       type: git
-       tag-pattern: ^v([\d.]+)$
-   ```
-
+3. In the manifest, set `tag` and `commit` of the `kadence` module to the new tag.
 4. Build and check it as above, then make the bundle in `build/flatpak/` and attach it to the GitHub release:
 
    ```sh
@@ -72,7 +70,7 @@ python3 packaging/flatpak/cargo-sources.py
        repo kadence-X.Y.Z-$(flatpak --default-arch).flatpak io.github.bewzaalex.kadence master
    ```
 
-To try local changes after that, switch the `git` source back to `type: dir` with `path: ../..`.
+5. Update the version in the file name in the top README's Flatpak section.
 
 ## Clean up
 
