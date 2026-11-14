@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use super::{factory_memories, Mem, ToneMem};
+use crate::audio::{TEMPO_MAX, TEMPO_MIN};
 
 pub struct Saved {
     pub memories: Vec<Mem>,
@@ -55,11 +56,12 @@ fn parse_mem(f: &[&str]) -> Option<Mem> {
     let n = |i: usize| f.get(i)?.parse::<u16>().ok();
     let b = |i: usize| n(i).map(|v| v.min(255) as u8);
     Some(Mem {
-        tempo: n(0)?.clamp(30, 250),
+        tempo: n(0)?.clamp(TEMPO_MIN, TEMPO_MAX),
         pattern_mode: n(1)? != 0,
         beat1: b(2)?.clamp(1, 9),
         beat2: b(3)?.min(9),
         pattern: b(4)?.clamp(1, 30),
+        // memories keep voice 4 on disk; `apply_mem` plays it as the nearest voice offered
         voice: b(5)?.clamp(1, 4),
         sliders: [b(6)?.min(100), b(7)?.min(100), b(8)?.min(100), b(9)?.min(100), b(10)?.min(100)],
         repeats: n(11)?.min(255),

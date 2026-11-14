@@ -1,12 +1,12 @@
 //! SVG sources for every part of the panel (port of design/mockup/panel.js).
 //!
-//! The case is split into a static background and small dynamic layers (LCD, knob,
-//! button caps, slider caps, LEDs) so only what changes is re-rendered.
+//! The case is split into a static background and small dynamic layers (knob, button caps,
+//! slider caps, LEDs; the LCD is in `lcd.rs`) so only what changes is re-rendered.
 
 use std::f64::consts::PI;
 use std::fmt::Write;
 
-use crate::device::{Btn, Device, Edit, Mode};
+use crate::device::Btn;
 
 pub const W: f64 = 610.0;
 pub const H: f64 = 800.0;
@@ -129,11 +129,11 @@ pub fn doc(body: &str, ids: &[&str], paint_uri: Option<&str>) -> String {
     )
 }
 
-fn f1(v: f64) -> f64 {
+pub(super) fn f1(v: f64) -> f64 {
     (v * 10.0).round() / 10.0
 }
 
-fn pts(p: &[(f64, f64)]) -> String {
+pub(super) fn pts(p: &[(f64, f64)]) -> String {
     let mut o = String::new();
     for (i, (x, y)) in p.iter().enumerate() {
         if i > 0 {
@@ -145,347 +145,6 @@ fn pts(p: &[(f64, f64)]) -> String {
 }
 
 // ------------------------------------------------------------------ LCD
-
-const GLYPHS: &[(char, &str)] = &[
-    ('0', "abcdef"), ('1', "bc"), ('2', "abdeg"), ('3', "abcdg"), ('4', "bcfg"), ('5', "acdfg"),
-    ('6', "acdefg"), ('7', "abc"), ('8', "abcdefg"), ('9', "abcdfg"), ('-', "g"), (' ', ""),
-    ('A', "abcefg"), ('b', "cdefg"), ('C', "adef"), ('c', "deg"), ('d', "bcdeg"), ('E', "adefg"),
-    ('F', "aefg"), ('G', "acdef"), ('h', "cefg"), ('H', "bcefg"), ('L', "def"), ('n', "ceg"),
-    ('o', "cdeg"), ('P', "abefg"), ('q', "abcfg"), ('r', "eg"), ('S', "acdfg"), ('t', "defg"),
-    ('u', "cde"), ('U', "bcdef"), ('y', "bcdfg"),
-];
-
-fn glyph(c: char) -> &'static str {
-    GLYPHS.iter().find(|(g, _)| *g == c).map(|(_, m)| *m).unwrap_or("")
-}
-
-/// LCD ink: lit segments, ghost (unlit) segments, inverted text.
-struct Ink {
-    on: &'static str,
-    gh: f64,
-    inv: &'static str,
-}
-
-struct Lcd {
-    o: String,
-    ink: Ink,
-}
-
-const BIG: (f64, f64, f64) = (22.0, 38.0, 4.4);
-const BIG_XS: [f64; 3] = [92.0, 118.0, 144.0];
-const BIG_Y: f64 = 7.0;
-const SM: (f64, f64, f64) = (11.0, 19.0, 2.5);
-const MEM_XS: [f64; 2] = [22.0, 36.0];
-const RIGHT_XS: [f64; 3] = [194.0, 208.0, 222.0];
-const PIVOT: (f64, f64) = (125.0, 150.0);
-pub const PEND_N: usize = 17;
-const PEND_SPAN: f64 = 44.0;
-
-fn hseg(x1: f64, x2: f64, y: f64, t: f64) -> [(f64, f64); 6] {
-    let h = t / 2.0;
-    [(x1, y), (x1 + h, y - h), (x2 - h, y - h), (x2, y), (x2 - h, y + h), (x1 + h, y + h)]
-}
-fn vseg(x: f64, y1: f64, y2: f64, t: f64) -> [(f64, f64); 6] {
-    let h = t / 2.0;
-    [(x, y1), (x + h, y1 + h), (x + h, y2 - h), (x, y2), (x - h, y2 - h), (x - h, y1 + h)]
-}
-
-impl Lcd {
-    fn fill(&self, lit: bool) -> String {
-        if lit { format!(r#"fill="{}""#, self.ink.on) } else { format!(r#"fill="{}" opacity="{}""#, self.ink.on, self.ink.gh) }
-    }
-
-    fn label(&mut self, txt: &str, x: f64, y: f64, on: bool, size: f64, anchor: &str) {
-        if on {
-            let _ = write!(self.o, r#"<text x="{x}" y="{y}" font-size="{size}" text-anchor="{anchor}" fill="{}">{txt}</text>"#, self.ink.on);
-        }
-    }
-    fn lbl(&mut self, txt: &str, x: f64, y: f64, on: bool) {
-        self.label(txt, x, y, on, 6.6, "start");
-    }
-
-    fn digit_mask(&mut self, x: f64, y: f64, (w, h, t): (f64, f64, f64), mask: &str, visible: bool) {
-        let g = t * 0.18;
-        let (xl, xr, yt, ym, yb) = (t / 2.0, w - t / 2.0, t / 2.0, h / 2.0, h - t / 2.0);
-        let segs = [
-            ('a', hseg(xl + g, xr - g, yt, t)),
-            ('b', vseg(xr, yt + g, ym - g, t)),
-            ('c', vseg(xr, ym + g, yb - g, t)),
-            ('d', hseg(xl + g, xr - g, yb, t)),
-            ('e', vseg(xl, ym + g, yb - g, t)),
-            ('f', vseg(xl, yt + g, ym - g, t)),
-            ('g', hseg(xl + g, xr - g, ym, t)),
-        ];
-        let _ = write!(self.o, r#"<g transform="translate({},{}) skewX(-7)">"#, f1(x), f1(y));
-        for (k, p) in segs {
-            let lit = visible && mask.contains(k);
-            let f = self.fill(lit);
-            let _ = write!(self.o, r#"<polygon {f} points="{}"/>"#, pts(&p));
-        }
-        self.o += "</g>";
-    }
-
-    fn digit(&mut self, x: f64, y: f64, size: (f64, f64, f64), c: char, visible: bool) {
-        self.digit_mask(x, y, size, glyph(c), visible);
-    }
-
-    /// Right-aligned text into the given digit cells.
-    fn digits(&mut self, xs: &[f64], y: f64, size: (f64, f64, f64), text: &str, visible: bool) {
-        let chars: Vec<char> = text.chars().collect();
-        let n = xs.len();
-        for (i, x) in xs.iter().enumerate() {
-            let k = (i + chars.len()) as isize - n as isize;
-            let c = if k >= 0 { chars[k as usize] } else { ' ' };
-            self.digit(*x, y, size, c, visible);
-        }
-    }
-
-    fn pendulum(&mut self, idx: Option<usize>) {
-        for i in 0..PEND_N {
-            let a = (-PEND_SPAN + (2.0 * PEND_SPAN * i as f64) / (PEND_N - 1) as f64) * PI / 180.0;
-            let (r0, r1, w0, w1) = (20.0, 90.0, 3.2, 1.3);
-            let (sx, cy, px, py) = (a.sin(), -a.cos(), a.cos(), a.sin());
-            let p = |r: f64, w: f64| (PIVOT.0 + sx * r + px * w, PIVOT.1 + cy * r + py * w);
-            let poly = [p(r0, -w0), p(r1, -w1), p(r1 + 2.0, 0.0), p(r1, w1), p(r0, w0)];
-            let f = self.fill(idx == Some(i));
-            let _ = write!(self.o, r#"<polygon {f} points="{}"/>"#, pts(&poly));
-        }
-    }
-
-    fn wedge(&mut self, x: f64, bottom: f64, level: u8) {
-        for i in 0..5 {
-            let hh = 3.0 + i as f64 * 2.8;
-            let f = self.fill((i as u8) < level);
-            let _ = write!(self.o, r#"<rect {f} x="{}" y="{}" width="3.6" height="{}"/>"#, f1(x + i as f64 * 4.6), f1(bottom - hh), f1(hh));
-        }
-    }
-
-    fn note_icon(&mut self, kind: u8, x: f64, y: f64) {
-        let on = self.ink.on;
-        let head = |cx: f64, cy: f64| format!(r#"<ellipse fill="{on}" cx="{cx}" cy="{cy}" rx="2.6" ry="1.9" transform="rotate(-22 {cx} {cy})"/>"#);
-        let stem = |cx: f64, cy: f64| format!(r#"<rect fill="{on}" x="{}" y="{}" width="0.9" height="10"/>"#, cx + 1.9, cy - 10.0);
-        let flag = |cx: f64, cy: f64, n: u8| {
-            let mut o = String::new();
-            for i in 0..n {
-                let _ = write!(o, r#"<path fill="{on}" d="M{},{} q3,2 3,5 q-0.8,-2.4 -3,-3.2z"/>"#, cx + 2.8, cy - 10.0 + i as f64 * 2.6);
-            }
-            o
-        };
-        let rest8 = |rx: f64, ry: f64| format!(r#"<path fill="{on}" d="M{rx},{ry} a1.2,1.2 0 1,1 1.6,1.1 l2.4,-1.1 l-2.6,7 h-1 l2.2,-5.6 l-2.6,0.6z"/>"#);
-        let note = |cx: f64, cy: f64, flags: u8| head(cx, cy) + &stem(cx, cy) + &flag(cx, cy, flags);
-        let s = match kind {
-            1 => note(x + 4.0, y, 0),
-            2 => rest8(x, y - 9.0) + &note(x + 9.0, y, 1),
-            3 => rest8(x - 3.0, y - 9.0) + &note(x + 5.0, y, 2) + &rest8(x + 11.0, y - 9.0) + &note(x + 19.0, y, 2),
-            _ => {
-                let mut o = String::new();
-                for i in 0..3 {
-                    o += &head(x + i as f64 * 6.0, y);
-                    o += &stem(x + i as f64 * 6.0, y);
-                }
-                let _ = write!(o, r#"<rect fill="{on}" x="{}" y="{}" width="12.9" height="1.6"/>"#, x + 1.9, y - 10.0);
-                o
-            }
-        };
-        self.o += &s;
-        if kind == 4 {
-            self.label("3", x + 8.0, y - 12.0, true, 5.0, "middle");
-        }
-    }
-
-    fn sun(&mut self, cx: f64, cy: f64, on: bool) {
-        let f = self.fill(on);
-        let _ = write!(self.o, r#"<circle {f} cx="{cx}" cy="{cy}" r="2.4"/>"#);
-        for i in 0..8 {
-            let _ = write!(self.o, r#"<rect {f} x="{}" y="{}" width="1" height="2.2" transform="rotate({} {cx} {cy})"/>"#, cx - 0.5, cy - 6.0, i * 45);
-        }
-    }
-}
-
-const NOTE_NAMES: [&str; 12] = ["C", "C#", "d", "d#", "E", "F", "F#", "G", "G#", "A", "A#", "b"];
-
-/// LCD layer: glass content in panel coordinates.
-pub fn lcd(d: &Device) -> String {
-    // while powering off the light and then the segments fade out
-    let light = if d.backlight && d.power { d.light_level } else { 0.0 };
-    let backlit = light > 0.5;
-    let ink = if backlit { Ink { on: "#2b1606", gh: 0.07, inv: "#f6a24a" } } else { Ink { on: "#17180f", gh: 0.055, inv: "#b4bba2" } };
-    let mut l = Lcd { o: String::new(), ink };
-    let (lx, ly, lw, lh) = LCD_RECT;
-    let _ = write!(l.o, r#"<g transform="translate({lx},{ly})"><rect x="0" y="0" width="{lw}" height="{lh}" fill="url(#lcdOff)"/>"#);
-    if light > 0.0 {
-        let _ = write!(l.o, r#"<rect x="0" y="0" width="{lw}" height="{lh}" fill="url(#lcdOn)" opacity="{light:.3}"/>"#);
-    }
-
-    if !d.power {
-        l.digits(&BIG_XS, BIG_Y, BIG, "   ", false);
-        l.pendulum(None);
-    } else if d.ink_level < 1.0 {
-        let _ = write!(l.o, r#"<g opacity="{:.3}">"#, d.ink_level);
-        lcd_content(&mut l, d);
-        l.o += "</g>";
-    } else {
-        lcd_content(&mut l, d);
-    }
-    l.o += "</g>";
-    let _ = write!(l.o, r#"<rect x="{lx}" y="{ly}" width="{lw}" height="{lh}" fill="url(#glass)"/>"#);
-    doc(&l.o, &["lcdOn", "lcdOff", "glass"], None)
-}
-
-fn lcd_content(l: &mut Lcd, d: &Device) {
-    let hide = |e: Edit| d.edit == Some(e) && !d.blink;
-    let mode = d.mode;
-
-    // top-left: memory / sens
-    if mode == Mode::Coach {
-        l.lbl("TRIG", 6.0, 12.0, true);
-        l.lbl("SENS", 6.0, 30.0, true);
-        l.digits(&MEM_XS, 20.0, SM, &d.sens.to_string(), !hide(Edit::Sens));
-        let _ = write!(l.o, r#"<rect fill="{}" x="50" y="31" width="27" height="9" rx="1"/><text fill="{}" x="63.5" y="38" font-size="6.6" text-anchor="middle">COACH</text>"#, l.ink.on, l.ink.inv);
-        l.label("TRIG", 6.0, 52.0, true, 5.6, "start");
-        let f = l.fill(d.trig);
-        let _ = write!(l.o, r#"<circle {f} cx="14" cy="59" r="2.6"/>"#);
-    } else {
-        l.lbl("MEMORY", 6.0, 15.0, !hide(Edit::Memory) || mode == Mode::Tune);
-        let n = match (mode, d.edit) {
-            (_, Some(Edit::Write)) => d.write_target,
-            (Mode::Tune, _) => d.tone_memory,
-            _ => d.memory,
-        };
-        let vis = !(hide(Edit::Memory) || hide(Edit::Write)) && !(d.write_flashing() && !d.fast_blink);
-        l.digits(&MEM_XS, 20.0, SM, &n.to_string(), vis);
-        if d.edited && mode != Mode::Tune {
-            l.label("EDIT", 40.0, 47.0, true, 5.6, "start");
-        }
-    }
-
-    let arrow = |l: &mut Lcd| {
-        let _ = write!(l.o, r#"<path fill="{}" d="M60,2 l3,4 l3,-4z"/>"#, l.ink.on);
-    };
-    match mode {
-        Mode::Metro => l.lbl("TEMPO", 52.0, 18.0, !hide(Edit::Tempo)),
-        Mode::Loop => {
-            l.lbl("LOOP", 56.0, 18.0, true);
-            arrow(l);
-        }
-        Mode::Tune => l.lbl("NOTE", 56.0, 32.0, true),
-        Mode::Coach => {}
-    }
-
-    // big digits
-    if mode == Mode::Tune {
-        let nn = NOTE_NAMES[(d.note % 12) as usize];
-        let oct = (d.note / 12) as i32 - 1;
-        l.digit(BIG_XS[0], BIG_Y, BIG, nn.chars().next().unwrap(), true);
-        l.digit(BIG_XS[1], BIG_Y, BIG, char::from_digit(oct as u32, 10).unwrap_or(' '), true);
-        l.digit(BIG_XS[2], BIG_Y, BIG, ' ', false);
-        l.label("#", 113.0, 15.0, nn.len() > 1, 10.0, "start");
-    } else if let (Mode::Coach, Some(tc)) = (mode, d.time_check) {
-        // 7-position timing indicator across the 3 big digits (3 = on the beat)
-        let p = [(0, "f"), (0, "b"), (1, "f"), (1, "abf"), (1, "b"), (2, "f"), (2, "b")][tc as usize];
-        let mut masks = [String::new(), String::new(), String::new()];
-        masks[p.0] += p.1;
-        masks[1] += "d";
-        for (i, x) in BIG_XS.iter().enumerate() {
-            l.digit_mask(*x, BIG_Y, BIG, &masks[i], true);
-        }
-        l.label("[GOOD]", 129.0, 53.0, tc == 3, 6.4, "middle");
-    } else {
-        let txt = match mode {
-            Mode::Loop => d.loop_repeats.to_string(),
-            Mode::Coach if d.show_coach_name => ["tch", "qct", "Gud", "Sud"][d.coach as usize].to_string(),
-            _ => d.tempo.to_string(),
-        };
-        l.digits(&BIG_XS, BIG_Y, BIG, &txt, !hide(Edit::Tempo));
-    }
-
-    // right block: BEAT/PATTERN + STYLE, or PITCH
-    if mode == Mode::Tune {
-        l.label("PITCH", 191.0, 40.0, !hide(Edit::Pitch), 6.2, "end");
-        l.digits(&RIGHT_XS, 22.0, SM, &d.pitch.to_string(), !hide(Edit::Pitch));
-        l.label("Hz", 236.0, 18.0, true, 5.6, "start");
-        if !d.tone_on {
-            l.label("MUTE", 246.0, 78.0, true, 6.6, "end");
-        }
-    } else {
-        if d.pattern_mode {
-            l.label("PATTERN", 169.0, 36.0, !hide(Edit::Beat), 5.4, "start");
-        } else {
-            l.lbl("BEAT", 174.0, 32.0, !hide(Edit::Beat));
-        }
-        l.lbl("STYLE", 202.0, 16.0, true);
-        let (st, vis) = if mode == Mode::Loop {
-            (d.loop_count.to_string(), true)
-        } else if mode == Mode::Coach && d.edit == Some(Edit::Guide) {
-            l.lbl("GUIDE", 174.0, 46.0, true);
-            (format!("{} {}", d.guide, d.beat1), d.blink)
-        } else if d.edit == Some(Edit::Beat2) {
-            (format!("{}{}", d.beat1, if d.beat2 == 0 { "-".into() } else { d.beat2.to_string() }), d.blink)
-        } else if d.edit == Some(Edit::CountIn) || (d.count_in > 0 && !d.playing) {
-            (format!("-{}", d.count_in), !hide(Edit::CountIn))
-        } else if d.pattern_mode {
-            (d.pattern.to_string(), !hide(Edit::Beat))
-        } else if d.playing {
-            (d.beat_pos.to_string(), true)
-        } else if d.beat2 > 0 {
-            (format!("{}{}", d.beat1, d.beat2), !hide(Edit::Beat))
-        } else {
-            (d.beat1.to_string(), !hide(Edit::Beat))
-        };
-        l.digits(&RIGHT_XS, 22.0, SM, &st, vis);
-        let _ = write!(l.o, r#"<path fill="{}" d="M215,50 l3,-4 l3,4z"/>"#, l.ink.on);
-        let count = if d.count_in > 0 && mode != Mode::Loop { "COUNT IN" } else { "COUNT" };
-        l.label(count, 218.0, 58.0, true, 6.2, "middle");
-        if d.muted {
-            l.label("MUTE", 246.0, 78.0, true, 6.6, "end");
-        }
-    }
-
-    // voice
-    if mode == Mode::Metro && !d.pattern_mode {
-        l.lbl("VOICE", 6.0, 66.0, !hide(Edit::Voice));
-        l.digit(13.0, 70.0, SM, char::from_digit(d.voice as u32, 10).unwrap_or(' '), !hide(Edit::Voice));
-    }
-
-    // sun icon: reserved; the backlight never switches itself off, so it stays unlit
-    l.sun(14.0, 106.0, false);
-
-    if mode != Mode::Tune {
-        l.pendulum(Some(d.pend));
-
-        // bottom: divider, VOL, amp icon (never lit), rhythm levels
-        let _ = write!(l.o, r#"<rect fill="{}" x="4" y="154" width="242" height="0.9"/>"#, l.ink.on);
-        l.label("VOL", 230.0, 163.0, true, 6.0, "middle");
-        let cone = |cx: f64| format!("M{},145 a2.6,2.6 0 1,0 -5.2,0 a2.6,2.6 0 1,0 5.2,0 Z", cx + 2.6);
-        let f = l.fill(false);
-        let _ = write!(l.o, r#"<path {f} fill-rule="evenodd" d="M222.5,137 h15 a1.5,1.5 0 0,1 1.5,1.5 v10 a1.5,1.5 0 0,1 -1.5,1.5 h-15 a1.5,1.5 0 0,1 -1.5,-1.5 v-10 a1.5,1.5 0 0,1 1.5,-1.5 Z M223,139 h14 v1.4 h-14 Z {} {}"/>"#, cone(226.0), cone(234.0));
-        let xs = [8.0, 46.0, 84.0, 122.0, 160.0];
-        let pat = d.pattern_mode;
-        let bottom = if pat { 188.0 } else { 196.0 };
-        if pat {
-            for (i, t) in ["KICK", "SNARE", "HH", "OTHER1", "OTHER2"].iter().enumerate() {
-                l.label(t, xs[i] + 10.0, 198.0, true, 6.0, "middle");
-            }
-        } else {
-            l.label("ACCENT", 6.0, 166.0, true, 6.0, "start");
-            l.note_icon(1, 54.0, 174.0);
-            l.note_icon(2, 88.0, 174.0);
-            l.note_icon(3, 124.0, 174.0);
-            l.note_icon(4, 164.0, 174.0);
-        }
-        let lv = d.levels();
-        for (i, x) in xs.iter().enumerate() {
-            l.wedge(x + if pat { 0.0 } else { 4.0 }, bottom, lv[i]);
-        }
-        let v = (d.sliders[5] as f64 / 20.0).ceil() as u8;
-        for i in 0..5u8 {
-            let f = l.fill(i < v);
-            let _ = write!(l.o, r#"<rect {f} x="221" y="{}" width="18" height="5"/>"#, f1(193.0 - i as f64 * 6.2));
-        }
-    }
-}
-
-// ------------------------------------------------------------------ knob
 
 fn well_path(open: bool) -> String {
     let (cx, cy) = DIAL;
@@ -636,11 +295,9 @@ pub fn background(paint_uri: &str) -> String {
     o += r#"<clipPath id="bodyClip"><rect x="6" y="6" width="598" height="784" rx="24"/></clipPath>"#;
     o += body_paint();
 
-    // black top panel with branding and LEDs (logo is a TODO; v1 text branding)
+    // black top panel with the lettering (drawn in design/logo/, exported to assets/) and LEDs
     o += r#"<path d="M36,470 V43 a5,5 0 0,1 5,-5 H329 a5,5 0 0,1 5,5 V470 Z" fill="url(#black)"/>"#;
-    o += r##"<g transform="translate(185,94)"><rect x="-112" y="-20" width="20" height="22" rx="2" fill="none" stroke="#c4c6c8" stroke-width="2.4"/><path d="M-106,-14 v12 h9 v-6 h-9" fill="none" stroke="#c4c6c8" stroke-width="2"/><text x="12" y="1" font-size="32" font-weight="900" text-anchor="middle" fill="#c4c6c8" letter-spacing="1" transform="scale(1.08,1)">KADENCE</text></g>"##;
-    o += r##"<text x="185" y="136" font-size="11.5" text-anchor="middle" fill="#c4c6c8" letter-spacing="0.6">METRONOME <tspan font-style="italic" font-weight="normal">Dr.Tick</tspan></text>"##;
-    o += r##"<text x="185" y="180" font-size="42" text-anchor="middle" fill="#c9cbcd" letter-spacing="2" transform="translate(185,0) scale(1.08,1) translate(-185,0)">KD-90</text>"##;
+    o += include_str!("../../assets/lettering.svg");
     for (i, (x, y)) in LEDS.iter().enumerate() {
         let c = if i == 0 { "#3a2a2a" } else { "#2a3a2c" };
         let _ = write!(o, r#"<rect x="{x}" y="{y}" width="20" height="8" rx="2" fill="{c}"/>"#);

@@ -52,9 +52,9 @@ and the orange glow of the LCD.
 - 🎚️ **Five rhythm sliders**: mix accents, quarter notes, eighths, sixteenths and triplets, like a drum machine for the metronome.
 - 🎶 **Beats 1 to 9, and combined meters**: alternate two bar lengths, for example 3 + 2 for a 5/4 that you feel as two groups.
 - 🪘 **30 drum patterns**: rock, shuffle, funk, jazz, Latin, waltz, march and more, with the sliders as a drum mixer.
-- 🔔 **Four click voices**: a wind-up metronome, a beep, a sharp electronic click and a spoken-style count.
-- 🎯 **Rhythm Coach**: *Time Check* listens through your microphone and shows whether you play ahead of or behind the beat. *Quiet Count* drops the click every other four bars to test your inner clock. *Gradual* and *Step Up/Down* move the tempo while you play.
-- 💾 **50 memories** and a **Loop** mode that plays them in a row: build a whole practice routine or a song's tempo map.
+- 🔔 **Three click voices**: a wind-up metronome, a beep and a sharp electronic click.
+- 🎯 **Rhythm Coach** *(coming soon)*: *Time Check* listens through your microphone and shows whether you play ahead of or behind the beat. *Quiet Count* drops the click every other four bars to test your inner clock. *Gradual* and *Step Up/Down* move the tempo while you play.
+- 💾 **50 memories**, and soon a **Loop** mode that plays them in a row: build a whole practice routine or a song's tempo map.
 - 🎵 **Reference tone** from C2 to B6, with concert pitch from 438 to 445 Hz.
 - ✨ **A device on your desktop**: a backlit LCD with segment ghosts, a swinging pendulum, buttons that sink when you press them, and a borderless window shaped like the case.
 - 🪶 **Light**: one 7 MB program with no GUI toolkit. It draws with the CPU, so it runs on any graphics hardware, and all sounds are synthesized.
@@ -63,7 +63,7 @@ and the orange glow of the LCD.
 
 Every [release](https://github.com/bewzaalex/kadence/releases/latest) has packages for x86_64 PCs.
 Download the one for your system from the release's **Assets** and install it as below.
-The `.deb`, `.rpm` and `.tar.gz` packages are available from the release after 0.1.0 on.
+The `.deb`, `.rpm` and `.tar.gz` packages are available from version 0.2.0 on.
 
 ### Flatpak
 
@@ -160,6 +160,13 @@ To uninstall, delete those three files.
 Click the buttons, drag the orange sliders and turn the dial. The dial clicks in steps, one value per click. Drag it in a circle near its edge, scroll
 over it, or use the arrow keys.
 
+**Settings stay open.** Pressing a setting's button (BEAT/PATTERN, VOICE, MEMORY, PITCH,
+TRIG/GUIDE …) makes its label blink, and the dial then changes it. It stays open until you press
+another button, even while the metronome plays: **START/STOP** and **LIGHT** don't close it
+(only a pending **WRITE** is cancelled by START/STOP).
+**TEMPO** and **TUNE** switch the screen instead: their value flashes twice, and the dial then
+sets the tempo or the note.
+
 The window has no frame. Drag the case anywhere outside the controls to move it, and use
 <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>−</kbd> / <kbd>Ctrl</kbd>+<kbd>0</kbd> to resize it.
 Run `kadence --decorations` if you prefer a normal window frame.
@@ -170,7 +177,7 @@ The LCD shows:
 | --- | --- |
 | Top left | The memory number, or the microphone sensitivity in Rhythm Coach |
 | Centre | The tempo, or the note in Tune mode |
-| Top right | The beat (or the pattern number) and the current count |
+| Top right | The style: the beats per bar (4, or a combined bar like 3+4) or the pattern number, and the current count while playing |
 | Middle | The pendulum, swinging with the beat |
 | Bottom | The levels of the five rhythm sliders, and the master volume |
 
@@ -183,9 +190,10 @@ The LCD shows:
 
 ### Beats and rhythms
 
-Press **BEAT/PATTERN** and turn the dial to choose 1 to 9 beats per bar; the first beat of each
-bar is accented. Press **BEAT/PATTERN** again to set a second bar length: Kadence then alternates
-the two, for example 3 and 2 for a 5/4 felt as 3 + 2.
+Press **BEAT/PATTERN**: the **BEAT** label blinks, and the dial chooses the beats per bar. It
+runs from 1 to 9, then on to the combined bars 1+1, 1+2 … 9+9, and then back to 1. The first
+beat of each bar is accented. A combined bar alternates two bar lengths, for example 3+2 for a
+5/4 felt as 3 + 2. While playing, the digit above **COUNT** counts the beats of the bar.
 
 The five sliders on the left mix the click:
 
@@ -202,16 +210,31 @@ pendulum keeps swinging.
 
 ### Drum patterns and voices
 
-Turn the dial past 9 beats in **BEAT/PATTERN** to choose one of the 30 drum patterns. In a pattern
-the five sliders become a drum mixer: kick, snare, hi-hat and two extra instruments, such as
-a ride cymbal, a clave or congas.
+<p align="center">
+  <img src="docs/screenshots/pattern.png" width="360" alt="Kadence playing drum pattern 16 at 128 BPM, with each instrument's level on the LCD">
+</p>
+
+Press **BEAT/PATTERN** a second time to switch to the drum patterns: the **PATTERN** label blinks,
+and the dial chooses one of the 30 patterns. Each further press switches between BEAT and
+PATTERN. In a pattern the five sliders become a drum mixer: kick, snare, hi-hat and two extra
+instruments, such as a ride cymbal, a clave or congas.
+
+| Patterns | Style |
+| --- | --- |
+| 1–4 | 8-beat |
+| 5–7 | 16-beat |
+| 8–10 | Shuffle |
+| 11, 12 | Funk |
+| 13, 14 | Jazz |
+| 15–19 | Blues, Techno, House, Country, Reggae |
+| 20–25 | Clave 3-2, Clave 2-3, Salsa, Rumba, Bossa nova, Samba |
+| 26–30 | Waltz, Tango, Mambo, Chachacha, March |
 
 Press **VOICE** and turn the dial to choose the click sound:
 
 1. a wooden wind-up metronome
 2. an electronic beep
 3. a short, sharp click that stays clear at high tempos
-4. a spoken-style count
 
 ### Count-in
 
@@ -226,16 +249,16 @@ Kadence keeps 50 memories, each with the tempo, beat or pattern, voice and slide
 - **Save**: press **WRITE**, turn the dial to choose the memory number, and press **WRITE** again.
   **START/STOP** cancels.
 - **Recall**: press **MEMORY** and turn the dial.
-- **Loop**: press **LOOP** to play the memories in a row. To set how many bars a memory plays,
+- **Loop** *(not available yet: it's still being tested, and the button only says so)*: press
+  **LOOP** to play the memories in a row. To set how many bars a memory plays,
   choose it with **MEMORY** and the dial while Loop is stopped, then turn the dial to the number
   of bars. Memories set to 0 bars are skipped. Use it for a practice routine that speeds up, or
   for the tempo map of a song.
 
 ### Rhythm Coach
 
-<p align="center">
-  <img src="docs/screenshots/coach.png" width="360" alt="Kadence in Rhythm Coach mode, ready for a Time Check">
-</p>
+> **Not available yet.** The Rhythm Coach is still being tested; for now **COACH** and
+> **TRIG/GUIDE** only say so. This is how it will work.
 
 Press **COACH** to enter the Rhythm Coach, and press it again to cycle through its four exercises:
 
@@ -264,7 +287,7 @@ switches the display off and closes Kadence; everything you changed is already s
 To restore the factory settings, hold **MEMORY** (or <kbd>E</kbd>) and press **POWER**
 (or <kbd>P</kbd>). Kadence stops, resets every memory and setting, and keeps running.
 
-The **MIDI** button only says that MIDI isn't supported yet.
+The **LOOP**, **COACH**, **TRIG/GUIDE** and **MIDI** buttons only say that their function isn't available yet.
 
 ## Keyboard shortcuts
 
@@ -278,7 +301,7 @@ The **MIDI** button only says that MIDI isn't supported yet.
 | <kbd>M</kbd> | MUTE |
 | <kbd>L</kbd> | LIGHT |
 | <kbd>W</kbd> / <kbd>E</kbd> | WRITE / MEMORY |
-| <kbd>1</kbd> … <kbd>7</kbd> | TEMPO, LOOP, TUNE, PITCH, COACH, TRIG/GUIDE, MIDI |
+| <kbd>1</kbd> … <kbd>7</kbd> | TEMPO, LOOP, TUNE, PITCH, COACH, TRIG/GUIDE, MIDI (LOOP, COACH, TRIG/GUIDE and MIDI aren't available yet) |
 | <kbd>K</kbd> | A hit for Time Check |
 | <kbd>P</kbd> | POWER: switch off and quit |
 | <kbd>E</kbd> + <kbd>P</kbd> | Restore factory settings |
@@ -343,16 +366,17 @@ src/
   device/            mod.rs (buttons, modes, dial, memories, LCD state), store.rs (settings file)
   audio/             mod.rs (audio handle), engine.rs (sequencer), synth.rs (voices and drums),
                      patterns.rs (drum patterns), output.rs (sound output), mic.rs (Time Check input)
-assets/              fonts, case texture, icon, desktop entry, AppStream metainfo
-design/              the HTML/SVG mockup the app was built from, and earlier drafts
+assets/              fonts, case texture, panel lettering, icon, desktop entry, AppStream metainfo
+design/              the HTML/SVG mockup the app was built from, earlier drafts, and logo/: the
+                     panel lettering (lettering.js; `node design/logo/export.js` updates the app)
 docs/                TODO.md (open work), RELEASING.md (how releases are made), screenshots
 packaging/flatpak/   Flatpak manifest and crate list
 .github/             the release workflow, which builds every package from a tag
 vendor/softbuffer/   softbuffer 0.4.8, patched for transparent windows (see KADENCE-PATCH.md)
 ```
 
-`cargo test` runs the sequencer tests. `kadence --render out.png [button …]` draws the panel to a
-PNG without opening a window, after pressing the named buttons; the screenshots above are made
+`cargo test` runs the sequencer tests. `kadence --render out.png [button … | dial:N …]` draws the panel
+to a PNG without opening a window, after pressing the named buttons and turning the dial; the screenshots above are made
 this way. Open work is listed in [`docs/TODO.md`](docs/TODO.md).
 
 ## License

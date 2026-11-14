@@ -12,12 +12,15 @@ use winit::event_loop::EventLoop;
 use device::Device;
 use ui::panel::BUTTONS;
 
-/// `kadence --render out.png [button…]`: renders the panel to a PNG without opening a window
-/// (pressing the named buttons first), for previews and visual checks.
+/// `kadence --render out.png [button… | dial:N…]`: renders the panel to a PNG without opening a
+/// window (pressing the named buttons and turning the dial first), for previews and visual checks.
 fn render_snapshot(dev: &mut Device, args: &[String]) {
     let now = Instant::now();
     for name in &args[1..] {
-        if let Some(bd) = BUTTONS.iter().find(|b| format!("{:?}", b.id).eq_ignore_ascii_case(name)) {
+        // dial:N turns the dial N clicks (negative = counter-clockwise)
+        if let Some(n) = name.strip_prefix("dial:").and_then(|n| n.parse().ok()) {
+            dev.dial(n, now);
+        } else if let Some(bd) = BUTTONS.iter().find(|b| format!("{:?}", b.id).eq_ignore_ascii_case(name)) {
             dev.button_down(bd.id, now);
             dev.button_up(bd.id, now);
         }
@@ -29,7 +32,7 @@ fn render_snapshot(dev: &mut Device, args: &[String]) {
     g.set_scale(std::env::var("KADENCE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0));
     g.finish_background();
     let t = Instant::now();
-    let pm = g.compose(dev, 0.0, &[]);
+    let pm = g.compose(dev, 0.0, &[]).canvas;
     if let Err(e) = pm.save_png(&args[0]) {
         eprintln!("kadence: {e}");
     }

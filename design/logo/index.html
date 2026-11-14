@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kadence lettering</title>
+<style>
+  :root { --bg: #1b1c1e; --fg: #d8dadc; --muted: #8d9195; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 16px; max-width: 70ch; }
+  .stage { background: #121314; border-radius: 10px; overflow: hidden; }
+  svg { display: block; width: 100%; height: auto; }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 16px 0; color: var(--muted); }
+  input[type=color] { width: 44px; height: 28px; border: 0; background: none; }
+  figure { margin: 24px 0 0; }
+  figure img { max-width: 100%; border-radius: 10px; }
+  figcaption { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Kadence lettering</h1>
+  <p>The branding on the black screen panel, in three styles set as one justified block:
+    KADENCE in heavy blocks with slit counters, METRONOME Dr.Tick in a small wide rounded
+    monoline, and KD-90 in the same monoline, large and medium weight. Every letter is drawn
+    in <code>lettering.js</code>; the app uses the same shapes.</p>
+  <div class="row">
+    <label>Ink <input id="ink" type="color" value="#a9acaf"></label>
+    <span id="info"></span>
+  </div>
+  <div class="stage"><svg id="panel" viewBox="37 50 296 175" role="img" aria-label="Kadence lettering on the screen panel"></svg></div>
+  <figure>
+    <img src="preview-panel.png" alt="The lettering in place on the Kadence panel">
+    <figcaption>preview-panel.png — in place on the panel (rendered from the app without its old lettering)</figcaption>
+  </figure>
+</main>
+<script src="lettering.js"></script>
+<script>
+  const svg = document.getElementById('panel');
+  const ink = document.getElementById('ink');
+  function draw() {
+    const b = KadenceLettering.block(85, 72, 200, ink.value);
+    svg.innerHTML =
+      '<rect x="37" y="50" width="296" height="175" fill="#121314"/>' +
+      '<rect x="104" y="192" width="18" height="8" rx="2" fill="#3a2a27"/>' +
+      '<rect x="228" y="192" width="18" height="8" rx="2" fill="#26352a"/>' +
+      '<rect x="55" y="214" width="260" height="20" rx="3" fill="#0a0a0b"/>' + b.svg;
+    document.getElementById('info').textContent =
+      `tracking (glyph units): KADENCE ${b.tracking.kadence}, METRONOME ${b.tracking.metronome}, KD-90 ${b.tracking.model}`;
+  }
+  ink.addEventListener('input', draw);
+  draw();
+</script>
+</body>
+</html>

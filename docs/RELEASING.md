@@ -24,11 +24,16 @@ runs on systems with the same or a newer C library. Their contents are set in `C
    `assets/io.github.bewzaalex.kadence.metainfo.xml`, with the version, today's date and a short
    description. The GitHub release notes are made from it, with the install table added.
    Point the screenshot URLs in the same file at the new tag (`.../kadence/vX.Y.Z/docs/...`).
-3. **Screenshots**, if the panel changed:
+3. **Screenshots**, if the panel changed. Each starts from fresh settings in a temporary folder, so
+   your own settings stay as they are; the pattern one sets tempo 128, pattern 16 and the sliders:
 
    ```sh
-   KADENCE_SCALE=1.5 cargo run --release -- --render docs/screenshots/backlit.png light
-   KADENCE_SCALE=1.5 cargo run --release -- --render docs/screenshots/coach.png coach
+   cfg=$(mktemp -d)
+   XDG_CONFIG_HOME=$cfg KADENCE_SCALE=1.5 cargo run --release -- --render docs/screenshots/backlit.png light
+   rm -rf $cfg/kadence && mkdir -p $cfg/kadence
+   echo "cur 128 1 4 0 16 1 100 80 70 60 100 0" > $cfg/kadence/settings.txt
+   XDG_CONFIG_HOME=$cfg KADENCE_SCALE=1.5 cargo run --release -- --render docs/screenshots/pattern.png
+   rm -rf $cfg
    ```
 
 4. **Crates**, if `Cargo.lock` changed: `python3 packaging/flatpak/cargo-sources.py`.

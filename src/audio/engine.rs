@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::f32::consts::TAU;
 use std::time::Instant;
 
+use super::{START_LEAD, TEMPO_MAX};
 use super::patterns::PATTERNS;
 use super::synth::{click, coach_click, count_click, drum, Hit, Voice};
 
@@ -61,6 +62,8 @@ pub struct Status {
     pub sr: f64,
     pub now: f64,
     pub last: Option<Mark>,
+    /// START: when it was pressed and when its first beat is heard (audible frames)
+    pub start: Option<(f64, f64)>,
     pub loop_memory: u8,
     pub loop_count: u16,
 }
@@ -73,6 +76,8 @@ pub struct Engine {
     cb_pos: u64,
     /// output latency in frames (reported by the host, or one buffer)
     latency: u64,
+    /// the last START: (pressed, first beat heard), audible frames
+    start_at: Option<(f64, f64)>,
 
     params: Params,
     pub(super) playing: bool,
@@ -108,6 +113,7 @@ impl Engine {
             pos: 0,
             cb_instant: Instant::now(),
             cb_pos: 0,
+            start_at: None,
             latency: 0,
             params: Params {
                 tempo: 120.0,
@@ -128,7 +134,7 @@ impl Engine {
             bar: 0,
             count: 0,
             coach_base: 120.0,
-            coach_max: 250.0,
+            coach_max: TEMPO_MAX as f64,
             coach_dir: 1.0,
             program: Vec::new(),
             loop_idx: 0,
@@ -161,7 +167,11 @@ impl Engine {
         self.beat = 0;
         self.bar = 0;
         self.count = params.count_in;
-        self.next_tick = self.pos as f64 + self.sr * 0.03;
+        // aim the first beat at START_LEAD after the press as heard: the output delay is
+        // subtracted, and it can't be earlier than the next frame to be rendered
+        let pressed = self.now_frame();
+        self.next_tick = (pressed + START_LEAD * self.sr - self.latency as f64).max(self.pos as f64);
+        self.start_at = Some((pressed, self.next_tick + self.latency as f64));
         self.marks.clear();
         self.playing = true;
     }
@@ -180,7 +190,7 @@ impl Engine {
             self.tempo = p.tempo;
             // in Coach mode the dial/TAP set the minimum; that resets the maximum
             self.coach_base = p.tempo;
-            self.coach_max = 250.0;
+            self.coach_max = TEMPO_MAX as f64;
             self.coach_dir = 1.0;
         }
     }
@@ -386,6 +396,7 @@ impl Engine {
             sr: self.sr,
             now,
             last,
+            start: self.start_at,
             loop_memory: self.program.get(self.loop_idx).map(|s| s.memory).unwrap_or(0),
             loop_count: self.loop_count,
         }
@@ -498,6 +509,25 @@ mod tests {
         let nums: Vec<i32> = run(&mut e, 3.0).iter().take(10).map(|m| m.num).collect();
         // memory 1: two bars of 2, memory 5: one bar of 3, then back to memory 1
         assert_eq!(nums, [1, 2, 1, 2, 1, 2, 3, 1, 2, 1]);
+    }
+
+    #[test]
+    fn first_beat_is_heard_start_lead_after_the_press() {
+        let mut e = Engine::new(48_000.0);
+        // a running stream with small buffers and a known output delay (one buffer, as when the
+        // host reports none), so the first beat can be scheduled START_LEAD after the press
+        let mut buf = vec![0.0f32; 128];
+        e.render(&mut buf, 1, 0.0);
+        e.start(params(120.0), vec![]);
+        let (pressed, first) = e.status().start.expect("start time");
+        assert!((first - pressed - START_LEAD * 48_000.0).abs() < 1.0, "first beat {} frames after the press", first - pressed);
+        // keep the same buffer size, so the output delay stays the same
+        let mut marks = Vec::new();
+        while marks.is_empty() {
+            e.render(&mut buf, 1, 0.0);
+            marks.extend(e.marks.drain(..));
+        }
+        assert!((marks[0].pos as f64 - first).abs() < 1.0, "first beat heard at {} instead of {first}", marks[0].pos);
     }
 
     #[test]

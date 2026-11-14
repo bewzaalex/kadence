@@ -4,7 +4,7 @@ mod store;
 
 use std::time::{Duration, Instant};
 
-use crate::audio::{Audio, LoopStep, Params, PlayMode};
+use crate::audio::{Audio, LoopStep, Params, PlayMode, START_LEAD, TEMPO_MAX, TEMPO_MIN};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Btn {
@@ -36,11 +36,9 @@ pub enum Mode {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Edit {
-    Tempo,
     Memory,
     Write,
     Beat,
-    Beat2,
     Voice,
     CountIn,
     Sens,
@@ -88,12 +86,31 @@ impl Default for ToneMem {
     }
 }
 
-pub const BLINK: Duration = Duration::from_millis(500);
-const EDIT_TIMEOUT: Duration = Duration::from_secs(6);
+/// Click voices the VOICE dial offers. Voice 4, the counting voice, is off until it is
+/// redone (see docs/TODO.md); a memory that stored it plays voice 3.
+pub const VOICES: u8 = 3;
+
+/// Buttons whose functions are written but not yet tested and released: pressing one shows this
+/// notice instead. Remove a button here to release its function.
+fn unreleased(b: Btn) -> Option<&'static str> {
+    match b {
+        Btn::Loop => Some("Loop is not available yet"),
+        Btn::Coach | Btn::Trig => Some("Rhythm Coach is not available yet"),
+        _ => None,
+    }
+}
+
+/// Pendulum positions on the LCD fan (0 = far left; the middle one is at rest).
+pub const PEND_N: usize = 27;
+
+/// Half a blink cycle: every blink on the LCD runs at 120 BPM (on and off once per 0.5 s).
+pub const BLINK: Duration = Duration::from_millis(250);
 /// POWER: the backlight fades, then the LCD segments fade, then the app quits.
 const LIGHT_FADE: Duration = Duration::from_millis(350);
 const INK_FADE: Duration = Duration::from_millis(450);
 const POWER_OFF_TIME: Duration = Duration::from_millis(900);
+/// TEMPO and TUNE: the tempo or note flashes twice within this time, then stays lit.
+const ENTRY_FLASH: Duration = Duration::from_millis(1000);
 
 pub struct Device {
     pub power: bool,
@@ -103,6 +120,10 @@ pub struct Device {
     /// LCD backlight and segment strength during the power-off animation (1 = normal)
     pub light_level: f64,
     pub ink_level: f64,
+    /// set by TEMPO and TUNE; the tempo or note flashes twice, then stays lit
+    entry_flash: Option<Instant>,
+    /// the tempo or note is hidden at this moment of the flash
+    pub flash_off: bool,
     pub mode: Mode,
     pub tempo: u16,
     pub memory: u8,
@@ -121,7 +142,12 @@ pub struct Device {
     pub muted: bool,
     /// 5 rhythm sliders + master VOL, 0..=100
     pub sliders: [u8; 6],
+    /// the lit pendulum bar (0 = far left)
     pub pend: usize,
+    /// beats heard since START (the pendulum swings the other way on each one)
+    swings: u64,
+    /// position of the last beat seen, to notice the next one
+    swing_beat: Option<u64>,
     pub sens: u8,
     pub coach: u8,
     pub guide: u8,
@@ -143,8 +169,6 @@ pub struct Device {
     pub tones: Vec<ToneMem>,
 
     epoch: Instant,
-    last_edit: Instant,
-    edit_until: Option<Instant>,
     write_flash_until: Option<Instant>,
     trig_until: Option<Instant>,
     coach_name_until: Option<Instant>,
@@ -163,6 +187,8 @@ impl Device {
             power_off: None,
             light_level: 1.0,
             ink_level: 1.0,
+            entry_flash: None,
+            flash_off: false,
             mode: Mode::Metro,
             tempo: 120,
             memory: saved.memory.clamp(1, 50),
@@ -180,7 +206,9 @@ impl Device {
             beat_pos: 1,
             muted: false,
             sliders: [100, 100, 0, 0, 0, 80],
-            pend: 8,
+            pend: PEND_N / 2,
+            swings: 0,
+            swing_beat: None,
             sens: saved.sens.clamp(1, 16),
             coach: 0,
             guide: saved.guide.clamp(1, 3),
@@ -199,8 +227,6 @@ impl Device {
             memories: saved.memories,
             tones: saved.tones,
             epoch: now,
-            last_edit: now,
-            edit_until: None,
             write_flash_until: None,
             trig_until: None,
             coach_name_until: None,
@@ -227,6 +253,21 @@ impl Device {
         let mut l = [0; 5];
         for i in 0..5 {
             l[i] = ((self.sliders[i] as f32) / 20.0).round() as u8;
+        }
+        l
+    }
+
+    /// The levels the LCD shows: in a pattern, an instrument the pattern doesn't use shows no
+    /// level, whatever its slider says.
+    pub fn shown_levels(&self) -> [u8; 5] {
+        let mut l = self.levels();
+        if self.pattern_mode {
+            let pat = &crate::audio::patterns::PATTERNS[self.pattern as usize - 1];
+            for (row, v) in l.iter_mut().enumerate() {
+                if !pat.uses(row) {
+                    *v = 0;
+                }
+            }
         }
         l
     }
@@ -283,12 +324,12 @@ impl Device {
     }
 
     fn apply_mem(&mut self, m: Mem) {
-        self.tempo = m.tempo.clamp(30, 250);
+        self.tempo = m.tempo.clamp(TEMPO_MIN, TEMPO_MAX);
         self.pattern_mode = m.pattern_mode;
         self.beat1 = m.beat1.clamp(1, 9);
         self.beat2 = m.beat2.min(9);
         self.pattern = m.pattern.clamp(1, 30);
-        self.voice = m.voice.clamp(1, 4);
+        self.voice = m.voice.clamp(1, VOICES);
         self.sliders[..5].copy_from_slice(&m.sliders);
         self.loop_repeats = m.repeats;
     }
@@ -316,10 +357,6 @@ impl Device {
         });
     }
 
-    fn touch(&mut self, now: Instant) {
-        self.last_edit = now;
-    }
-
     fn notice(&mut self, msg: &'static str) {
         self.notice = Some((msg, Instant::now()));
     }
@@ -333,6 +370,7 @@ impl Device {
     // ------------------------------------------------------------ transport
 
     fn start(&mut self) {
+        (self.swings, self.swing_beat) = (0, None);
         let mut program = Vec::new();
         if self.mode == Mode::Loop {
             for (i, m) in self.memories.iter().enumerate() {
@@ -346,7 +384,6 @@ impl Device {
         }
         self.audio.start(self.params(), program);
         self.playing = true;
-        self.edit = None;
         self.show_coach_name = false;
         if self.mode == Mode::Coach {
             self.audio_ensure_mic();
@@ -356,7 +393,7 @@ impl Device {
     fn stop(&mut self) {
         self.audio.stop();
         self.playing = false;
-        self.pend = 8;
+        self.pend = PEND_N / 2;
         self.beat_pos = 1;
         self.leds = [false; 2];
         if self.mode == Mode::Coach {
@@ -373,6 +410,8 @@ impl Device {
     }
 
     fn set_mode(&mut self, m: Mode) {
+        // another screen: a flash still running on the old one ends
+        self.entry_flash = None;
         if self.playing {
             self.stop();
         }
@@ -409,9 +448,16 @@ impl Device {
         if !self.power || self.power_off.is_some() {
             return;
         }
-        self.touch(now);
-        if b != Btn::Light && self.edit == Some(Edit::Tempo) {
+        // A setting stays open (its label blinking) until another button is pressed. START/STOP
+        // and LIGHT leave it open, so it can be changed while the metronome plays.
+        let prev = self.edit;
+        if !matches!(b, Btn::Start | Btn::Light) {
             self.edit = None;
+        }
+        // Loop playback and the Rhythm Coach are not released yet: their buttons only say so
+        // (the code behind them stays; see docs/TODO.md)
+        if let Some(msg) = unreleased(b) {
+            return self.notice(msg);
         }
         let combo = (b == Btn::Beat && self.is_held(Btn::Voice)) || (b == Btn::Voice && self.is_held(Btn::Beat));
         match b {
@@ -430,18 +476,16 @@ impl Device {
             }
             Btn::Memory => {
                 if !(self.mode == Mode::Loop && self.playing) {
-                    self.edit = if self.edit == Some(Edit::Memory) { None } else { Some(Edit::Memory) };
+                    self.edit = if prev == Some(Edit::Memory) { None } else { Some(Edit::Memory) };
                 }
             }
-            Btn::Write => self.write(now),
+            Btn::Write => self.write(now, prev == Some(Edit::Write)),
             Btn::Midi => self.notice("MIDI input is not implemented yet"),
             Btn::Tempo => {
                 if self.mode != Mode::Metro {
                     self.set_mode(Mode::Metro);
                 }
-                // the tempo value flashes a number of times
-                self.edit = Some(Edit::Tempo);
-                self.edit_until = Some(now + Duration::from_millis(1600));
+                self.entry_flash = Some(now);
             }
             Btn::Loop => {
                 self.set_mode(Mode::Loop);
@@ -449,10 +493,9 @@ impl Device {
                 self.loop_count = 0;
             }
             Btn::Tune => {
-                if self.mode == Mode::Tune {
-                    self.edit = None;
-                } else {
+                if self.mode != Mode::Tune {
                     self.set_mode(Mode::Tune);
+                    self.entry_flash = Some(now);
                     let t = self.tones[self.tone_memory as usize - 1];
                     self.note = t.note;
                     self.pitch = t.pitch;
@@ -486,10 +529,10 @@ impl Device {
                 } else if self.playing {
                     self.stop();
                 } else {
-                    self.edit = match self.edit {
-                        None => Some(Edit::Sens),
+                    self.edit = match prev {
                         Some(Edit::Sens) => Some(Edit::Guide),
-                        _ => None,
+                        Some(Edit::Guide) => None,
+                        _ => Some(Edit::Sens),
                     };
                 }
             }
@@ -497,7 +540,6 @@ impl Device {
                 // [BEAT/PATTERN] + [VOICE]: count-in on/off
                 if self.count_in > 0 {
                     self.count_in = 0;
-                    self.edit = None;
                 } else {
                     self.count_in = 4;
                     self.edit = Some(Edit::CountIn);
@@ -508,7 +550,13 @@ impl Device {
                 if matches!(self.mode, Mode::Tune | Mode::Coach) {
                     self.set_mode(Mode::Metro);
                 }
-                self.edit = if self.edit == Some(Edit::Beat) && !self.pattern_mode { Some(Edit::Beat2) } else { Some(Edit::Beat) };
+                // the first press opens the current mode; each further press switches BEAT <-> PATTERN
+                if prev == Some(Edit::Beat) {
+                    self.pattern_mode = !self.pattern_mode;
+                    self.edit_changed();
+                    self.sync_audio();
+                }
+                self.edit = Some(Edit::Beat);
             }
             Btn::Voice => {
                 if matches!(self.mode, Mode::Tune | Mode::Coach) {
@@ -523,7 +571,7 @@ impl Device {
             }
             Btn::Tap => self.tap(now),
             Btn::Start => {
-                if self.edit == Some(Edit::Write) {
+                if prev == Some(Edit::Write) {
                     self.edit = None;
                 } else if self.mode == Mode::Tune {
                     self.set_tone(!self.tone_on);
@@ -578,13 +626,14 @@ impl Device {
         self.notice("Factory settings restored");
     }
 
-    fn write(&mut self, now: Instant) {
+    /// WRITE: the first press opens the target memory, the second stores (`open`: WRITE was open).
+    fn write(&mut self, now: Instant, open: bool) {
         if self.mode == Mode::Coach && self.playing && self.coach >= 2 {
             // tempo in effect becomes the maximum metronome value
             self.audio.coach_set_max();
             return;
         }
-        if self.edit == Some(Edit::Write) {
+        if open {
             let t = self.write_target;
             if self.mode == Mode::Tune {
                 self.tones[t as usize - 1] = ToneMem { note: self.note, pitch: self.pitch };
@@ -617,7 +666,7 @@ impl Device {
         if self.tap_times.len() >= 2 {
             let span = now.duration_since(self.tap_times[0]).as_secs_f64();
             let avg = span / (self.tap_times.len() - 1) as f64;
-            self.tempo = ((60.0 / avg).round() as u16).clamp(30, 250);
+            self.tempo = ((60.0 / avg).round() as u16).clamp(TEMPO_MIN, TEMPO_MAX);
             if self.mode == Mode::Metro {
                 self.edit_changed();
             } else {
@@ -632,7 +681,6 @@ impl Device {
         if !self.power || self.power_off.is_some() || n == 0 {
             return;
         }
-        self.touch(now);
         let add = |v: i32, lo: i32, hi: i32| (v + n).clamp(lo, hi);
         let wrap = |v: i32, lo: i32, hi: i32| (v - lo + n).rem_euclid(hi - lo + 1) + lo;
         match self.edit {
@@ -657,20 +705,15 @@ impl Device {
                 self.write_target = wrap(self.write_target as i32, 1, hi) as u8;
                 return;
             }
+            Some(Edit::Beat) if self.pattern_mode => self.pattern = wrap(self.pattern as i32, 1, 30) as u8,
             Some(Edit::Beat) => {
-                // the dial runs BEAT 1..9, then PATTERN 1..30
-                let idx = if self.pattern_mode { 9 + self.pattern as i32 } else { self.beat1 as i32 };
-                let idx = add(idx, 1, 39);
-                if idx <= 9 {
-                    self.pattern_mode = false;
-                    self.beat1 = idx as u8;
-                } else {
-                    self.pattern_mode = true;
-                    self.pattern = (idx - 9) as u8;
-                }
+                // 1 … 9, then the combined bars 1+1, 1+2 … 9+9, then 1 again
+                let (b1, b2) = (self.beat1 as i32, self.beat2 as i32);
+                let idx = if b2 == 0 { b1 - 1 } else { 9 + (b1 - 1) * 9 + (b2 - 1) };
+                let idx = (idx + n).rem_euclid(90);
+                (self.beat1, self.beat2) = if idx < 9 { (idx as u8 + 1, 0) } else { ((idx - 9) as u8 / 9 + 1, (idx - 9) as u8 % 9 + 1) };
             }
-            Some(Edit::Beat2) => self.beat2 = add(self.beat2 as i32, 0, 9) as u8,
-            Some(Edit::Voice) => self.voice = add(self.voice as i32, 1, 4) as u8,
+            Some(Edit::Voice) => self.voice = add(self.voice as i32, 1, VOICES as i32) as u8,
             Some(Edit::CountIn) => {
                 self.count_in = add(self.count_in as i32, 1, 8) as u8;
                 self.sync_audio();
@@ -692,7 +735,7 @@ impl Device {
                 }
                 return;
             }
-            Some(Edit::Tempo) | None => {
+            None => {
                 match self.mode {
                     Mode::Tune => {
                         self.note = add(self.note as i32, 36, 95) as u8;
@@ -707,13 +750,13 @@ impl Device {
                         }
                     }
                     Mode::Coach => {
-                        self.tempo = add(self.tempo as i32, 30, 250) as u16;
+                        self.tempo = add(self.tempo as i32, TEMPO_MIN as i32, TEMPO_MAX as i32) as u16;
                         self.show_coach_name = false;
                         self.coach_name_until = Some(now + Duration::from_millis(1500));
                         self.sync_audio();
                     }
                     Mode::Metro => {
-                        self.tempo = add(self.tempo as i32, 30, 250) as u16;
+                        self.tempo = add(self.tempo as i32, TEMPO_MIN as i32, TEMPO_MAX as i32) as u16;
                         self.edit_changed();
                         self.sync_audio();
                     }
@@ -769,20 +812,14 @@ impl Device {
             }
             return;
         }
-        if self.edit_until.is_some_and(|t| now >= t) {
-            self.edit_until = None;
-            if self.edit == Some(Edit::Tempo) {
-                self.edit = None;
+        // off, on, off, on, at the blink rate: two flashes in a second, then the value stays lit
+        self.flash_off = match self.entry_flash {
+            Some(t) if now.duration_since(t) < ENTRY_FLASH => (now.duration_since(t).as_millis() / BLINK.as_millis()) % 2 == 0,
+            _ => {
+                self.entry_flash = None;
+                false
             }
-        }
-        if self.edit.is_some_and(|e| !matches!(e, Edit::Write | Edit::CountIn | Edit::Tempo))
-            && now.duration_since(self.last_edit) > EDIT_TIMEOUT
-        {
-            self.edit = None;
-        }
-        if self.edit == Some(Edit::CountIn) && now.duration_since(self.last_edit) > EDIT_TIMEOUT {
-            self.edit = None;
-        }
+        };
         if self.write_flash_until.is_some_and(|t| now >= t) {
             self.write_flash_until = None;
         }
@@ -819,12 +856,34 @@ impl Device {
             self.loop_count = st.loop_count;
         }
         self.leds = [false; 2];
+        // the pendulum's position: -1 = left edge, 0 = centre, 1 = right edge
         if let Some(m) = st.last {
-            let ph = ((st.now - m.pos as f64) / m.len).clamp(0.0, 1.0);
-            // pendulum: at an extreme on the beat, swings across in one beat
-            let dir = if m.num.rem_euclid(2) == 1 { 1.0 } else { -1.0 };
-            let pos = (std::f64::consts::PI * ph).cos() * dir;
-            self.pend = (((pos + 1.0) / 2.0) * 16.0).round() as usize;
+            if self.swing_beat != Some(m.pos) {
+                if self.swing_beat.is_some() {
+                    self.swings += 1;
+                }
+                self.swing_beat = Some(m.pos);
+            }
+        }
+        let from_left = if self.swings % 2 == 0 { 1.0 } else { -1.0 };
+        let now = st.now;
+        let pos = match (st.last, st.start) {
+            // swinging: at an edge on every beat, straight across to the other edge at an even
+            // speed in one beat (the first beat is on the left)
+            (Some(m), _) => (2.0 * ((now - m.pos as f64) / m.len).clamp(0.0, 1.0) - 1.0) * from_left,
+            // before the first sound: leave the centre START_LEAD before it, speeding up, and hit
+            // the left edge just as it sounds. With a longer output delay (Bluetooth) the sound
+            // comes later, so the needle waits in the centre first and keeps its speed.
+            (None, Some((pressed, first))) => {
+                let travel = (START_LEAD * st.sr).min(first - pressed).max(1.0);
+                let u = ((now - (first - travel)) / travel).clamp(0.0, 1.0);
+                -(u * u)
+            }
+            (None, None) => 0.0,
+        };
+        let i = (((pos + 1.0) / 2.0) * (PEND_N - 1) as f64).round() as usize;
+        self.pend = i.min(PEND_N - 1);
+        if let Some(m) = st.last {
             if st.now - (m.pos as f64) < 0.08 * st.sr {
                 if m.accent || m.num < 0 {
                     self.leds[0] = true;
@@ -843,8 +902,15 @@ impl Device {
         self.write_flash_until.is_some()
     }
 
-    /// Next instant something time-based changes, for the event loop.
+    /// Something moves continuously (the pendulum, the power-off fade): draw at the display's rate.
+    pub fn moving(&self) -> bool {
+        self.playing || self.power_off.is_some()
+    }
+
+    /// Something time-based changes soon (blinking, flashes): check for changes often.
     pub fn needs_animation(&self) -> bool {
-        self.playing || self.notice.is_some() || self.write_flash_until.is_some() || self.power_off.is_some()
+        self.playing || self.notice.is_some() || self.write_flash_until.is_some() || self.power_off.is_some() || self.entry_flash.is_some()
+            // a value being edited blinks: keep its on and off phases even
+            || self.edit.is_some()
     }
 }

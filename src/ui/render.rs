@@ -3,7 +3,9 @@
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
 
-use resvg::tiny_skia::{FilterQuality, Pixmap, PixmapPaint, Transform};
+use std::hash::{DefaultHasher, Hash, Hasher};
+
+use resvg::tiny_skia::{FilterQuality, IntRect, Pixmap, PixmapPaint, Transform};
 use resvg::usvg;
 
 use super::cache;
@@ -12,6 +14,21 @@ use crate::device::Device;
 
 /// Resolution of the quick background shown while the sharp one is drawn (fraction of full).
 const PREVIEW: f32 = 0.25;
+
+/// A rectangle of the frame, in pixels.
+#[derive(Clone, Copy, Debug)]
+pub struct Area {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// A composed frame, and the part that changed since the last one (`None`: all of it).
+pub struct Frame<'a> {
+    pub canvas: &'a Pixmap,
+    pub changed: Option<Area>,
+}
 
 struct Layer {
     pm: Pixmap,
@@ -24,10 +41,20 @@ pub struct Gfx {
     paint_uri: String,
     scale: f32,
     bg: Option<Pixmap>,
+    /// counts background changes (preview, sharp version, new size), so the composed `still`
+    /// picture is rebuilt whenever the background under it changes
+    bg_gen: u64,
     /// the sharp background, being drawn on another thread (the preview is shown meanwhile)
     bg_job: Option<Receiver<Pixmap>>,
     canvas: Option<Pixmap>,
     lcd: Option<(String, Layer)>,
+    /// the pendulum fan over the LCD, and the glass sheen over both
+    fan: Option<(String, Layer)>,
+    glass: Option<Layer>,
+    /// the glass over the fan's area, laid over the fan on every frame
+    glass_fan: Option<Pixmap>,
+    /// everything but the fan, composed (redone only when one of its parts changes)
+    still: Option<(u64, Pixmap)>,
     knob: Option<(i32, Layer)>,
     caps: Vec<[Layer; 2]>,
     slider_caps: Vec<Layer>,
@@ -48,9 +75,14 @@ impl Gfx {
             paint_uri,
             scale: 0.0,
             bg: None,
+            bg_gen: 0,
             bg_job: None,
             canvas: None,
             lcd: None,
+            fan: None,
+            glass: None,
+            glass_fan: None,
+            still: None,
             knob: None,
             caps: Vec::new(),
             slider_caps: Vec::new(),
@@ -72,7 +104,7 @@ impl Gfx {
         let key = cache::key(&doc, w, h);
         self.bg_job = None;
         if let Some(pm) = cache::load(key, w, h) {
-            self.bg = Some(pm);
+            self.set_bg(pm);
             return;
         }
         let small = rasterize(&self.opt, &doc, self.scale * PREVIEW, 0.0, 0.0, svg::W, svg::H).pm;
@@ -80,7 +112,7 @@ impl Gfx {
         let paint = PixmapPaint { quality: FilterQuality::Bilinear, ..PixmapPaint::default() };
         let k = Transform::from_scale(w as f32 / small.width() as f32, h as f32 / small.height() as f32);
         preview.draw_pixmap(0, 0, small.as_ref(), &paint, k, None);
-        self.bg = Some(preview);
+        self.set_bg(preview);
 
         let (tx, rx) = mpsc::channel();
         let (opt, scale) = (self.opt.clone(), self.scale);
@@ -113,7 +145,7 @@ impl Gfx {
         let Some(rx) = &self.bg_job else { return false };
         match rx.try_recv() {
             Ok(pm) => {
-                self.bg = Some(pm);
+                self.set_bg(pm);
                 self.bg_job = None;
                 release_free_memory();
                 true
@@ -129,8 +161,13 @@ impl Gfx {
     /// Waits for the sharp background (for snapshots).
     pub fn finish_background(&mut self) {
         if let Some(pm) = self.bg_job.take().and_then(|rx| rx.recv().ok()) {
-            self.bg = Some(pm);
+            self.set_bg(pm);
         }
+    }
+
+    fn set_bg(&mut self, pm: Pixmap) {
+        self.bg = Some(pm);
+        self.bg_gen += 1;
     }
 
     /// Panel size in pixels at the current scale.
@@ -170,18 +207,34 @@ impl Gfx {
         self.slider_caps = layers.by_ref().take(SLIDERS.len()).collect();
         self.leds = layers.collect();
         self.lcd = None;
+        self.fan = None;
+        self.still = None;
+        let (x, y, w, h) = LCD_RECT;
+        let glass = self.region(&super::lcd::glass(), x, y, w, h);
+        // the same sheen, cut to the fan's area (the fan layer is placed on the same pixel grid)
+        let (fx, fy, fw, fh) = super::lcd::fan_rect();
+        let (ax, ay, aw, ah) = pixel_rect(self.scale, fx, fy, fw, fh);
+        let cut = IntRect::from_xywh(ax - glass.x, ay - glass.y, aw, ah);
+        self.glass_fan = cut.and_then(|r| glass.pm.clone_rect(r));
+        self.glass = Some(glass);
         self.knob = None;
         self.notice = None;
         release_free_memory();
     }
 
     /// Composes the whole panel for the current device state.
-    pub fn compose(&mut self, d: &Device, knob_angle: f64, pressed: &[crate::device::Btn]) -> &Pixmap {
-        let lcd_doc = svg::lcd(d);
+    pub fn compose(&mut self, d: &Device, knob_angle: f64, pressed: &[crate::device::Btn]) -> Frame<'_> {
+        let lcd_doc = super::lcd::lcd(d);
         if self.lcd.as_ref().is_none_or(|(k, _)| *k != lcd_doc) {
             let (x, y, w, h) = LCD_RECT;
             let l = self.region(&lcd_doc, x, y, w, h);
             self.lcd = Some((lcd_doc, l));
+        }
+        let fan_doc = super::lcd::fan(d);
+        if self.fan.as_ref().is_none_or(|(k, _)| *k != fan_doc) {
+            let (x, y, w, h) = super::lcd::fan_rect();
+            let l = self.region(&fan_doc, x, y, w, h);
+            self.fan = Some((fan_doc, l));
         }
         let key = (knob_angle * 2.0).round() as i32;
         if self.knob.as_ref().is_none_or(|(k, _)| *k != key) {
@@ -197,47 +250,70 @@ impl Gfx {
             _ => {}
         }
 
+        // everything but the fan is composed into `still`, and redone only when it changes
         let s = self.scale as f64;
-        let canvas = self.canvas.as_mut().expect("scale set");
-        canvas.data_mut().copy_from_slice(self.bg.as_ref().expect("scale set").data());
+        let mut key = DefaultHasher::new();
+        (self.bg_gen, &self.lcd.as_ref().map(|l| &l.0), self.knob.as_ref().map(|k| k.0), pressed, d.sliders, d.power && d.leds[0], d.power && d.leds[1]).hash(&mut key);
+        d.notice.map(|n| n.0).hash(&mut key);
+        let key = key.finish();
         let paint = PixmapPaint::default();
-        let mut blit = |l: &Layer, dy: i32| canvas.draw_pixmap(l.x, l.y + dy, l.pm.as_ref(), &paint, Transform::identity(), None);
-
-        if let Some((_, l)) = &self.lcd {
-            blit(l, 0);
-        }
-        if d.power {
-            for (i, on) in d.leds.iter().enumerate() {
-                if *on {
-                    blit(&self.leds[i], 0);
+        let full = self.still.as_ref().is_none_or(|(k, _)| *k != key);
+        if full {
+            let mut still = self.bg.clone().expect("scale set");
+            let mut blit = |l: &Layer, dy: i32| still.draw_pixmap(l.x, l.y + dy, l.pm.as_ref(), &paint, Transform::identity(), None);
+            if let Some((_, l)) = &self.lcd {
+                blit(l, 0);
+            }
+            if let Some(l) = &self.glass {
+                blit(l, 0);
+            }
+            if d.power {
+                for (i, on) in d.leds.iter().enumerate() {
+                    if *on {
+                        blit(&self.leds[i], 0);
+                    }
                 }
             }
+            for (i, bd) in BUTTONS.iter().enumerate() {
+                let down = pressed.contains(&bd.id);
+                blit(&self.caps[i][down as usize], 0);
+            }
+            for i in 0..6 {
+                let dy = ((svg::slider_cap_y(d.sliders[i]) - CAP_REF_Y) * s).round() as i32;
+                blit(&self.slider_caps[i], dy);
+            }
+            if let Some((_, l)) = &self.knob {
+                blit(l, 0);
+            }
+            if let Some((_, l)) = &self.notice {
+                blit(l, 0);
+            }
+            self.still = Some((key, still));
         }
-        for (i, bd) in BUTTONS.iter().enumerate() {
-            let down = pressed.contains(&bd.id);
-            blit(&self.caps[i][down as usize], 0);
+
+        // the frame: `still`, and over it the fan with the glass on top, in the fan's area only
+        let still = &self.still.as_ref().unwrap().1;
+        let canvas = self.canvas.as_mut().expect("scale set");
+        let (fan, glass) = (&self.fan.as_ref().expect("fan drawn").1, self.glass_fan.as_ref().expect("scale set"));
+        let area = Area { x: fan.x, y: fan.y, w: fan.pm.width(), h: fan.pm.height() };
+        if full {
+            canvas.data_mut().copy_from_slice(still.data());
+        } else {
+            let row = canvas.width() as usize * 4;
+            let (x0, x1) = (area.x.max(0) as usize * 4, ((area.x + area.w as i32) as usize).min(canvas.width() as usize) * 4);
+            for y in area.y.max(0) as usize..((area.y + area.h as i32) as usize).min(canvas.height() as usize) {
+                canvas.data_mut()[y * row + x0..y * row + x1].copy_from_slice(&still.data()[y * row + x0..y * row + x1]);
+            }
         }
-        for i in 0..6 {
-            let dy = ((svg::slider_cap_y(d.sliders[i]) - CAP_REF_Y) * s).round() as i32;
-            blit(&self.slider_caps[i], dy);
-        }
-        if let Some((_, l)) = &self.knob {
-            blit(l, 0);
-        }
-        if let Some((_, l)) = &self.notice {
-            blit(l, 0);
-        }
-        self.canvas.as_ref().unwrap()
+        canvas.draw_pixmap(fan.x, fan.y, fan.pm.as_ref(), &paint, Transform::identity(), None);
+        canvas.draw_pixmap(fan.x, fan.y, glass.as_ref(), &paint, Transform::identity(), None);
+        Frame { canvas: self.canvas.as_ref().unwrap(), changed: if full { None } else { Some(area) } }
     }
 }
 
 /// Rasterizes the part (x, y, w, h) of an SVG document, in panel units, at `scale`.
 fn rasterize(opt: &usvg::Options, doc: &str, scale: f32, x: f64, y: f64, w: f64, h: f64) -> Layer {
-    let s = scale as f64;
-    let px0 = (x * s).floor() as i32;
-    let py0 = (y * s).floor() as i32;
-    let pw = (((x + w) * s).ceil() as i32 - px0).max(1) as u32;
-    let ph = (((y + h) * s).ceil() as i32 - py0).max(1) as u32;
+    let (px0, py0, pw, ph) = pixel_rect(scale, x, y, w, h);
     let mut pm = Pixmap::new(pw, ph).expect("pixmap");
     match usvg::Tree::from_str(doc, opt) {
         Ok(tree) => {
@@ -247,6 +323,15 @@ fn rasterize(opt: &usvg::Options, doc: &str, scale: f32, x: f64, y: f64, w: f64,
         Err(e) => eprintln!("kadence: svg error: {e}"),
     }
     Layer { pm, x: px0, y: py0 }
+}
+
+/// The pixels a panel area (x, y, w, h) covers at `scale`: whole pixels around it.
+fn pixel_rect(scale: f32, x: f64, y: f64, w: f64, h: f64) -> (i32, i32, u32, u32) {
+    let s = scale as f64;
+    let (px0, py0) = ((x * s).floor() as i32, (y * s).floor() as i32);
+    let pw = (((x + w) * s).ceil() as i32 - px0).max(1) as u32;
+    let ph = (((y + h) * s).ceil() as i32 - py0).max(1) as u32;
+    (px0, py0, pw, ph)
 }
 
 fn base64(data: &[u8]) -> String {

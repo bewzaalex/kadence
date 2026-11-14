@@ -29,11 +29,11 @@
   <screenshots>
     <screenshot type="default">
       <caption>The panel with the LCD backlight on</caption>
-      <image>https://raw.githubusercontent.com/bewzaalex/kadence/v0.1.0/docs/screenshots/backlit.png</image>
+      <image>https://raw.githubusercontent.com/bewzaalex/kadence/v0.2.0/docs/screenshots/backlit.png</image>
     </screenshot>
     <screenshot>
-      <caption>Rhythm Coach, ready for a Time Check</caption>
-      <image>https://raw.githubusercontent.com/bewzaalex/kadence/v0.1.0/docs/screenshots/coach.png</image>
+      <caption>A drum pattern, with each instrument's level on the LCD</caption>
+      <image>https://raw.githubusercontent.com/bewzaalex/kadence/v0.2.0/docs/screenshots/pattern.png</image>
     </screenshot>
   </screenshots>
   <description>
@@ -42,13 +42,29 @@
     <ul>
       <li>Tempo 30 to 250 BPM, set with the dial or by tapping</li>
       <li>Beats with accents, eighths, sixteenths and triplets mixed on five sliders</li>
-      <li>30 drum patterns and four click voices</li>
-      <li>Rhythm Coach: Time Check through the microphone, Quiet Count, Gradual and Step tempo changes</li>
-      <li>50 memories and a Loop mode that plays them in sequence</li>
+      <li>30 drum patterns and three click voices</li>
+      <li>50 memories</li>
       <li>Count-in and a reference tone for tuning</li>
     </ul>
   </description>
   <releases>
+    <release version="0.2.0" date="2026-11-15">
+      <url type="details">https://github.com/bewzaalex/kadence/releases/tag/v0.2.0</url>
+      <description>
+        <p>A redrawn display, new lettering and packages for more Linux systems.</p>
+        <ul>
+          <li>New LCD with every segment, label and icon, and a 27-bar pendulum</li>
+          <li>New KADENCE / METRONOME Dr.Tick / KD-90 lettering</li>
+          <li>Pendulum swings at an even speed, drawn at the display's refresh rate; START swings out to the first beat</li>
+          <li>BEAT/PATTERN switches between beats and patterns; the dial goes on to combined bars 1+1 to 9+9</li>
+          <li>Settings stay open until another button is pressed, even while playing; labels blink at 120 BPM, values stay lit</li>
+          <li>Tuner screen shows the volume; TEMPO and TUNE flash their value twice</li>
+          <li>Instruments a pattern doesn't use show no level</li>
+          <li>New .deb, .rpm and .tar.gz packages next to the Flatpak</li>
+          <li>Loop, the Rhythm Coach and the counting voice are off until they are reworked</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-11-13">
       <url type="details">https://github.com/bewzaalex/kadence/releases/tag/v0.1.0</url>
       <description>

@@ -17,6 +17,11 @@ pub struct Pattern {
 }
 
 impl Pattern {
+    /// Whether the instrument on this row plays at all in the pattern.
+    pub fn uses(&self, row: usize) -> bool {
+        self.rows[row].bytes().any(|b| b != b'.')
+    }
+
     pub fn hit(&self, row: usize, step: usize) -> f32 {
         match self.rows[row].as_bytes().get(step) {
             Some(b'X') => 1.0,
