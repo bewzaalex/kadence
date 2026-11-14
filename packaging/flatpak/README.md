@@ -2,7 +2,9 @@
 
 `io.github.bewzaalex.kadence.yml` builds Kadence on the freedesktop runtime with the Rust SDK
 extension. Flatpak builds have no network, so `cargo-sources.json` lists every crate from
-`Cargo.lock` as a download; cargo then builds offline from them.
+`Cargo.lock` as a download; cargo then builds offline from them. The manifest builds the source
+it sits in: your working copy here, and the release tag in the release workflow
+([`docs/RELEASING.md`](../../docs/RELEASING.md)), which makes the bundle for each release.
 
 Kadence isn't on Flathub. Flathub doesn't accept manifests written with AI help, so a Flathub
 submission needs its own manifest, written and submitted by a person.
@@ -39,13 +41,11 @@ flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
 Both should pass with no errors. The two URL options put the screenshots and icons in the catalog
 with their Flathub addresses, as Flathub's own builds do.
 
-The manifest builds the release tag, not your working copy. To try local changes, replace the `git`
-source of the `kadence` module with:
+To make a bundle file from your build, still in `build/flatpak/`:
 
-```yaml
-- type: dir
-  path: ../..
-  skip: [.git, build, target, design/reference]
+```sh
+flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+    repo kadence-dev-$(flatpak --default-arch).flatpak io.github.bewzaalex.kadence master
 ```
 
 ## Crates
@@ -55,22 +55,6 @@ When `Cargo.lock` changes, regenerate the crate list and commit it with the lock
 ```sh
 python3 packaging/flatpak/cargo-sources.py
 ```
-
-## A new release
-
-1. Add the release to `assets/io.github.bewzaalex.kadence.metainfo.xml`, and point the screenshot URLs
-   at the new tag. Update `docs/screenshots/` if the panel changed
-   (`kadence --render docs/screenshots/backlit.png light`, `KADENCE_SCALE=1.5`).
-2. Tag it (`vX.Y.Z`) and publish a GitHub release.
-3. In the manifest, set `tag` and `commit` of the `kadence` module to the new tag.
-4. Build and check it as above, then make the bundle in `build/flatpak/` and attach it to the GitHub release:
-
-   ```sh
-   flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
-       repo kadence-X.Y.Z-$(flatpak --default-arch).flatpak io.github.bewzaalex.kadence master
-   ```
-
-5. Update the version in the file name in the top README's Flatpak section.
 
 ## Clean up
 

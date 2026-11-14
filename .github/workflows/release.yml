@@ -1,0 +1,129 @@
+# Builds the release packages and puts them in a draft GitHub release.
+#
+#   Push a tag vX.Y.Z  -> check, test, build all packages, create a draft release with them
+#   Run it by hand     -> the same checks and builds, packages only as workflow artifacts
+#
+# See docs/RELEASING.md.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check versions and test
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versions agree (tag, Cargo.toml, metainfo)
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            v=$(python3 .github/scripts/release.py version "$GITHUB_REF_NAME")
+          else
+            v=$(python3 .github/scripts/release.py version)
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - run: cargo test --release --locked
+
+  linux:
+    name: tar.gz, deb and rpm
+    needs: check
+    # the oldest supported Ubuntu: the program then runs on systems with glibc 2.35 or newer
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - run: cargo build --release --locked
+      - name: tar.gz
+        run: |
+          d=kadence-$VERSION-x86_64-linux
+          mkdir -p dist $d
+          cp target/release/kadence README.md LICENSE $d/
+          cp assets/io.github.bewzaalex.kadence.desktop assets/io.github.bewzaalex.kadence.metainfo.xml \
+             assets/icons/io.github.bewzaalex.kadence.svg $d/
+          cp assets/fonts/OFL.txt $d/OFL-NotoSans.txt
+          tar -czf dist/$d.tar.gz --owner=0 --group=0 $d
+      - name: Packaging tools
+        run: cargo install --locked cargo-deb cargo-generate-rpm
+      - name: deb and rpm
+        run: |
+          cargo deb --no-build --output dist/
+          cargo generate-rpm --output dist/
+      - name: Package contents
+        run: |
+          ls -l dist
+          dpkg-deb --info dist/*.deb && dpkg-deb --contents dist/*.deb
+          tar -tzvf dist/*.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak
+    needs: check
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    env:
+      BUNDLE: kadence-${{ needs.check.outputs.version }}-x86_64.flatpak
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
+        with:
+          manifest-path: packaging/flatpak/io.github.bewzaalex.kadence.yml
+          bundle: ${{ env.BUNDLE }}
+          cache-key: flatpak-builder-${{ github.sha }}
+          upload-artifact: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: ${{ env.BUNDLE }}
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    if: github.ref_type == 'tag'
+    needs: [check, linux, flatpak]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Release notes
+        run: python3 .github/scripts/release.py notes "$VERSION" > notes.md
+      - name: Create the draft (or update its files when re-run)
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag \
+              --title "Kadence $VERSION" --notes-file notes.md
+          fi

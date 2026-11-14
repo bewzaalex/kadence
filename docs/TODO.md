@@ -15,6 +15,8 @@
       currently shows the borderless case on a dark square. Implement a layered window
       (WS_EX_LAYERED + UpdateLayeredWindow with a premultiplied 32-bit DIB) in vendor/softbuffer
       or as a Windows-only present path in the app.
+- [ ] Windows release package: add a Windows job to `.github/workflows/release.yml` (zip or
+      installer), after the transparent window and the .exe icon below are done and tested.
 - [ ] App icon outside Linux: macOS needs an .app bundle with an .icns for the Dock; Windows needs
       the icon embedded as an .exe resource (build script) for Explorer and the taskbar.
 - [ ] Verify transparency on X11 (softbuffer accepts depth-32 visuals; untested) and macOS.

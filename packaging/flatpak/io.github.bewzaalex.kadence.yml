@@ -26,11 +26,12 @@ modules:
       - install -Dm644 assets/io.github.bewzaalex.kadence.metainfo.xml /app/share/metainfo/io.github.bewzaalex.kadence.metainfo.xml
       - install -Dm644 assets/icons/io.github.bewzaalex.kadence.svg /app/share/icons/hicolor/scalable/apps/io.github.bewzaalex.kadence.svg
     sources:
-      - type: git
-        url: https://github.com/bewzaalex/kadence.git
-        tag: v0.1.0
-        commit: 33217b15df2a4e214d4f938b116e401eb4914fad
-        x-checker-data:
-          type: git
-          tag-pattern: ^v([\d.]+)$
+      # The checked-out source: in the release workflow that is the release tag
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - build
+          - target
+          - design/reference
       - cargo-sources.json

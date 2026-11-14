@@ -25,6 +25,9 @@ and the orange glow of the LCD.
 - [Features](#features)
 - [Installation](#installation)
   - [Flatpak](#flatpak)
+  - [Debian and Ubuntu](#debian-and-ubuntu)
+  - [Fedora and openSUSE](#fedora-and-opensuse)
+  - [Other Linux](#other-linux)
   - [From source](#from-source)
   - [Add it to the application launcher](#add-it-to-the-application-launcher)
 - [Using Kadence](#using-kadence)
@@ -58,21 +61,53 @@ and the orange glow of the LCD.
 
 ## Installation
 
+Every [release](https://github.com/bewzaalex/kadence/releases/latest) has packages for x86_64 PCs.
+Download the one for your system from the release's **Assets** and install it as below.
+The `.deb`, `.rpm` and `.tar.gz` packages are available from the release after 0.1.0 on.
+
 ### Flatpak
 
-Download `kadence-0.1.0-x86_64.flatpak` from the [latest release](https://github.com/bewzaalex/kadence/releases/latest) and install it:
+Works on any Linux distribution with Flatpak. It fetches the freedesktop runtime from Flathub if
+you don't have it yet:
 
 ```sh
-flatpak install --user kadence-0.1.0-x86_64.flatpak
+flatpak install --user kadence-*-x86_64.flatpak
 ```
-
-Flatpak fetches the freedesktop runtime from Flathub if you don't have it yet. Kadence then appears
-in the application launcher, with its icon. The bundle is for x86_64 PCs. There are no automatic
-updates yet: to update, install the file from a newer release.
 
 To uninstall: `flatpak uninstall --user io.github.bewzaalex.kadence`.
 
-To build the Flatpak yourself, see [`packaging/flatpak/`](packaging/flatpak/README.md).
+### Debian and Ubuntu
+
+```sh
+sudo apt install ./kadence_*_amd64.deb
+```
+
+To uninstall: `sudo apt remove kadence`.
+
+### Fedora and openSUSE
+
+```sh
+sudo dnf install ./kadence-*.x86_64.rpm        # Fedora
+sudo zypper install ./kadence-*.x86_64.rpm     # openSUSE
+```
+
+To uninstall: `sudo dnf remove kadence` or `sudo zypper remove kadence`.
+
+### Other Linux
+
+The `.tar.gz` holds the program, which runs on any distribution with glibc 2.35 or newer
+(2022 and later), with its icon and desktop entry:
+
+```sh
+tar -xzf kadence-*-x86_64-linux.tar.gz
+./kadence-*-x86_64-linux/kadence
+```
+
+To add it to the application launcher, see [below](#add-it-to-the-application-launcher).
+
+With every package, Kadence appears in the application launcher with its icon (the `.tar.gz` once
+you add it). There are no automatic updates yet: to update, install the package from a newer
+release the same way.
 
 ### From source
 
@@ -94,14 +129,26 @@ yet, and on Windows the window still has a square frame (see [`docs/TODO.md`](do
 
 ### Add it to the application launcher
 
-On Wayland, the desktop shows an application's icon only once its desktop entry is installed.
-To install Kadence for your user, with its icon and launcher entry:
+The packages do this for you. For the `.tar.gz` or a build from source, install Kadence for your
+user with its icon and launcher entry (on Wayland the desktop shows an application's icon only
+once its desktop entry is installed).
+
+From the unpacked `.tar.gz`:
+
+```sh
+cd kadence-*-x86_64-linux
+install -Dm755 kadence ~/.local/bin/kadence
+install -Dm644 -t ~/.local/share/applications io.github.bewzaalex.kadence.desktop
+install -Dm644 -t ~/.local/share/icons/hicolor/scalable/apps io.github.bewzaalex.kadence.svg
+```
+
+From the source folder:
 
 ```sh
 cargo build --release
 install -Dm755 target/release/kadence ~/.local/bin/kadence
-install -Dm644 assets/io.github.bewzaalex.kadence.desktop ~/.local/share/applications/io.github.bewzaalex.kadence.desktop
-install -Dm644 assets/icons/io.github.bewzaalex.kadence.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.bewzaalex.kadence.svg
+install -Dm644 -t ~/.local/share/applications assets/io.github.bewzaalex.kadence.desktop
+install -Dm644 -t ~/.local/share/icons/hicolor/scalable/apps assets/icons/io.github.bewzaalex.kadence.svg
 ```
 
 To uninstall, delete those three files.
@@ -298,8 +345,9 @@ src/
                      patterns.rs (drum patterns), output.rs (sound output), mic.rs (Time Check input)
 assets/              fonts, case texture, icon, desktop entry, AppStream metainfo
 design/              the HTML/SVG mockup the app was built from, and earlier drafts
-docs/                TODO.md (open work) and screenshots
+docs/                TODO.md (open work), RELEASING.md (how releases are made), screenshots
 packaging/flatpak/   Flatpak manifest and crate list
+.github/             the release workflow, which builds every package from a tag
 vendor/softbuffer/   softbuffer 0.4.8, patched for transparent windows (see KADENCE-PATCH.md)
 ```
 
