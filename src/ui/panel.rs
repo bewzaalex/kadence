@@ -14,6 +14,8 @@ pub const DIAL: (f64, f64) = (492.0, 524.0);
 pub const SLIDERS: [f64; 6] = [70.0, 112.0, 154.0, 196.0, 238.0, 300.0];
 pub const SL_TOP: f64 = 494.0;
 pub const SL_BOT: f64 = 610.0;
+/// How far each end of a slider's slot is drawn inside SL_TOP..SL_BOT.
+const SLOT_INSET: f64 = 1.5;
 pub const LCD_RECT: (f64, f64, f64, f64) = (60.0, 218.0, 250.0, 200.0);
 pub const LEDS: [(f64, f64); 2] = [(113.0, 196.0), (237.0, 196.0)];
 pub const MIC_RECT: (f64, f64, f64, f64) = (350.0, 575.0, 40.0, 40.0);
@@ -235,9 +237,10 @@ pub fn slider_cap(i: usize) -> String {
     let mut o = String::new();
     let _ = write!(o, r##"<rect x="{}" y="-11" width="17" height="27" rx="1.6" fill="#000" opacity="0.45" filter="url(#blur1)"/>"##, x - 7.0);
     let _ = write!(o, r##"<rect x="{}" y="-13.5" width="16" height="27" rx="1.6" fill="#c76f04"/>"##, x - 8.0);
-    let _ = write!(o, r##"<rect x="{}" y="-13.5" width="16" height="14" rx="1.6" fill="url(#capGrad)"/>"##, x - 8.0);
-    let _ = write!(o, r##"<rect x="{}" y="0.5" width="16" height="11" rx="1" fill="#f39a0c"/>"##, x - 8.0);
-    let _ = write!(o, r##"<rect x="{}" y="0" width="16" height="1.3" fill="#ffd27a" opacity="0.9"/>"##, x - 8.0);
+    // the line across the cap is centred on y = 0, like the scale's ticks
+    let _ = write!(o, r##"<rect x="{}" y="-13.5" width="16" height="13.35" rx="1.6" fill="url(#capGrad)"/>"##, x - 8.0);
+    let _ = write!(o, r##"<rect x="{}" y="-0.15" width="16" height="11.65" rx="1" fill="#f39a0c"/>"##, x - 8.0);
+    let _ = write!(o, r##"<rect x="{}" y="-0.65" width="16" height="1.3" fill="#ffd27a" opacity="0.9"/>"##, x - 8.0);
     let _ = write!(o, r##"<rect x="{}" y="-13.5" width="16" height="27" rx="1.6" fill="none" stroke="#9c5704" stroke-width="0.6"/>"##, x - 8.0);
     // drawn around y=40 so the blur filter region stays inside the viewBox
     doc(&format!(r#"<g transform="translate(0,40)">{o}</g>"#), &["capGrad", "blur1"], None)
@@ -338,8 +341,10 @@ pub fn background(paint_uri: &str) -> String {
     o += r##"<rect x="265.2" y="471" width="1.5" height="155" fill="#000" opacity="0.55"/><rect x="266.9" y="471" width="1.2" height="155" fill="#fff" opacity="0.3"/><rect x="265.6" y="471" width="0.8" height="155" fill="#151618" opacity="0.9"/>"##;
     let _ = write!(o, r#"<text x="300" y="489" font-size="{PRINT_SIZE}" fill="{PRINT}" text-anchor="middle">VOL</text>"#);
     for x in SLIDERS {
-        let _ = write!(o, r##"<rect x="{}" y="{SL_TOP}" width="13" height="{}" fill="#070708"/><rect x="{}" y="{SL_TOP}" width="13" height="{}" fill="none" stroke="url(#edgeHole)" stroke-width="1"/>"##,
-            x - 6.5, SL_BOT - SL_TOP, x - 6.5, SL_BOT - SL_TOP);
+        // the slot ends just inside the cap's travel, so a cap at either end covers it
+        let (top, h) = (SL_TOP + SLOT_INSET, SL_BOT - SL_TOP - 2.0 * SLOT_INSET);
+        let _ = write!(o, r##"<rect x="{}" y="{top}" width="13" height="{h}" fill="#070708"/><rect x="{}" y="{top}" width="13" height="{h}" fill="none" stroke="url(#edgeHole)" stroke-width="1"/>"##,
+            x - 6.5, x - 6.5);
         for k in 0..=10 {
             let y = SL_BOT - 14.0 - (k as f64 / 10.0) * (SL_BOT - SL_TOP - 28.0);
             let _ = write!(o, r#"<rect x="{}" y="{}" width="{}" height="1.1" fill="{PRINT}"/>"#, x + 10.0, f1(y - 0.55), if k % 5 == 0 { 7.0 } else { 4.5 });
