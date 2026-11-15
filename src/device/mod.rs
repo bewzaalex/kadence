@@ -105,19 +105,17 @@ pub const PEND_N: usize = 27;
 
 /// Half a blink cycle: every blink on the LCD runs at 120 BPM (on and off once per 0.5 s).
 pub const BLINK: Duration = Duration::from_millis(250);
-/// POWER: the backlight fades, then the LCD segments fade, then the app quits.
-const LIGHT_FADE: Duration = Duration::from_millis(350);
-const INK_FADE: Duration = Duration::from_millis(450);
-const POWER_OFF_TIME: Duration = Duration::from_millis(900);
+/// POWER: the LCD goes dark at once, and the app quits this long after.
+const POWER_OFF_TIME: Duration = Duration::from_millis(100);
 /// TEMPO and TUNE: the tempo or note flashes twice within this time, then stays lit.
 const ENTRY_FLASH: Duration = Duration::from_millis(1000);
 
 pub struct Device {
     pub power: bool,
     pub backlight: bool,
-    /// set when POWER was pressed; the panel animates off and the app quits
+    /// set when POWER was pressed; the LCD goes dark and the app quits soon after
     power_off: Option<Instant>,
-    /// LCD backlight and segment strength during the power-off animation (1 = normal)
+    /// LCD backlight and segment strength: 1 normally, 0 once POWER was pressed
     pub light_level: f64,
     pub ink_level: f64,
     /// set by TEMPO and TUNE; the tempo or note flashes twice, then stays lit
@@ -495,11 +493,12 @@ impl Device {
             Btn::Tune => {
                 if self.mode != Mode::Tune {
                     self.set_mode(Mode::Tune);
-                    self.entry_flash = Some(now);
                     let t = self.tones[self.tone_memory as usize - 1];
                     self.note = t.note;
                     self.pitch = t.pitch;
                 }
+                // like TEMPO: every press flashes the note, also when already on the tuner
+                self.entry_flash = Some(now);
             }
             Btn::Pitch => {
                 if self.mode != Mode::Tune {
@@ -584,11 +583,19 @@ impl Device {
         }
     }
 
-    /// POWER turns the app off: playback stops, the display fades out and the app quits.
+    /// POWER turns the app off: playback stops, the display goes dark and the app quits.
     /// Holding MEMORY while pressing POWER restores the factory settings instead.
     fn power_button(&mut self, now: Instant) {
         if self.is_held(Btn::Memory) {
             self.factory_reset();
+            return;
+        }
+        self.shut_down(now);
+    }
+
+    /// Stops everything, saves, and starts the power-off: the LCD goes dark and the app quits.
+    pub fn shut_down(&mut self, now: Instant) {
+        if self.power_off.is_some() {
             return;
         }
         self.stop();
@@ -803,11 +810,9 @@ impl Device {
         self.fast_blink = (ms / 90) % 2 == 0;
 
         if let Some(t) = self.power_off {
-            let t = now.duration_since(t);
-            let ease = |x: f64| 1.0 - x.clamp(0.0, 1.0).powi(2);
-            self.light_level = ease(t.as_secs_f64() / LIGHT_FADE.as_secs_f64());
-            self.ink_level = ease((t.as_secs_f64() - LIGHT_FADE.as_secs_f64() * 0.6) / INK_FADE.as_secs_f64());
-            if t >= POWER_OFF_TIME {
+            self.light_level = 0.0;
+            self.ink_level = 0.0;
+            if now.duration_since(t) >= POWER_OFF_TIME {
                 self.power = false;
             }
             return;
@@ -902,7 +907,7 @@ impl Device {
         self.write_flash_until.is_some()
     }
 
-    /// Something moves continuously (the pendulum, the power-off fade): draw at the display's rate.
+    /// Something moves continuously (the pendulum, the power-off): draw at the display's rate.
     pub fn moving(&self) -> bool {
         self.playing || self.power_off.is_some()
     }

@@ -257,7 +257,7 @@ impl Lcd {
 
 /// The LCD's ink for the current light: lit segments, unlit segments, and the background.
 fn ink(d: &Device) -> Ink {
-    // while powering off the light and then the segments fade out
+    // powering off turns the light and the segments off at once
     let light = if d.backlight && d.power { d.light_level } else { 0.0 };
     if light > 0.5 { Ink { on: "#2b1606", gh: 0.07, inv: "#f6a24a" } } else { Ink { on: "#17180f", gh: 0.055, inv: "#b4bba2" } }
 }

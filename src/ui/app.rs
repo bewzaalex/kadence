@@ -410,11 +410,8 @@ impl ApplicationHandler for App {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
                 let pressed = event.state == ElementState::Pressed;
                 match code {
-                    // no title bar: Ctrl+Q closes the app (as does POWER)
-                    KeyCode::KeyQ if pressed && self.ctrl => {
-                        self.dev.save();
-                        el.exit();
-                    }
+                    // no title bar: Ctrl+Q turns the app off like POWER
+                    KeyCode::KeyQ if pressed && self.ctrl => self.dev.shut_down(Instant::now()),
                     KeyCode::Equal | KeyCode::NumpadAdd if pressed && self.ctrl => self.zoom(Some(self.zoom + 0.1)),
                     KeyCode::Minus | KeyCode::NumpadSubtract if pressed && self.ctrl => self.zoom(Some(self.zoom - 0.1)),
                     KeyCode::Digit0 | KeyCode::Numpad0 if pressed && self.ctrl => self.zoom(None),
