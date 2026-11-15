@@ -2,6 +2,7 @@
 
 pub mod app;
 mod cache;
+mod gpu;
 mod lcd;
 pub mod panel;
 pub mod render;

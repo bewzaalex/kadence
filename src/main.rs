@@ -2,6 +2,7 @@
 
 mod audio;
 mod device;
+mod dirs;
 mod ui;
 
 use std::sync::mpsc;
@@ -32,7 +33,7 @@ fn render_snapshot(dev: &mut Device, args: &[String]) {
     g.set_scale(std::env::var("KADENCE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0));
     g.finish_background();
     let t = Instant::now();
-    let pm = g.compose(dev, 0.0, &[]).canvas;
+    let pm = g.snapshot(dev, 0.0);
     if let Err(e) = pm.save_png(&args[0]) {
         eprintln!("kadence: {e}");
     }
@@ -48,8 +49,8 @@ fn main() {
         return render_snapshot(&mut dev, &args[1..]);
     }
     let decorations = args.iter().any(|a| a == "--decorations");
-    // Windows: softbuffer has no alpha yet (needs a layered window, see docs/TODO.md)
-    let transparent = !decorations && cfg!(not(windows));
+    // see-through corners where the graphics system allows it (else the window background shows)
+    let transparent = !decorations;
     let event_loop = EventLoop::new().expect("event loop");
     let mut app = ui::app::App::new(dev, rx, decorations, transparent);
     if let Err(e) = event_loop.run_app(&mut app) {

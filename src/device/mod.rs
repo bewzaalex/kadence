@@ -4,7 +4,7 @@ mod store;
 
 use std::time::{Duration, Instant};
 
-use crate::audio::{Audio, LoopStep, Params, PlayMode, START_LEAD, TEMPO_MAX, TEMPO_MIN};
+use crate::audio::{Audio, LoopStep, Params, PlayMode, TEMPO_MAX, TEMPO_MIN};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Btn {
@@ -98,6 +98,11 @@ fn unreleased(b: Btn) -> Option<&'static str> {
         Btn::Coach | Btn::Trig => Some("Rhythm Coach is not available yet"),
         _ => None,
     }
+}
+
+/// A slider position (0..=100) as a level on the LCD (0..=5).
+fn level(slider: u8) -> u8 {
+    (slider as f32 / 20.0).round() as u8
 }
 
 /// Pendulum positions on the LCD fan (0 = far left; the middle one is at rest).
@@ -237,7 +242,7 @@ impl Device {
         if let Some(cur) = saved.current {
             d.apply_mem(cur);
         }
-        d.audio.sens.store(d.sens as u32, std::sync::atomic::Ordering::Relaxed);
+        d.set_sens(d.sens);
         if d.audio.error.is_some() {
             d.notice("No audio output device: sound is off");
         }
@@ -247,12 +252,9 @@ impl Device {
 
     // ------------------------------------------------------------ helpers
 
+    /// The rhythm sliders as the LCD's levels, 0..=5.
     pub fn levels(&self) -> [u8; 5] {
-        let mut l = [0; 5];
-        for i in 0..5 {
-            l[i] = ((self.sliders[i] as f32) / 20.0).round() as u8;
-        }
-        l
+        std::array::from_fn(|i| level(self.sliders[i]))
     }
 
     /// The levels the LCD shows: in a pattern, an instrument the pattern doesn't use shows no
@@ -270,25 +272,17 @@ impl Device {
         l
     }
 
+    /// What the audio engine plays now.
     fn params(&self) -> Params {
-        let lv = self.levels();
-        Params {
-            tempo: self.tempo as f64,
-            pattern: self.pattern_mode.then(|| self.pattern - 1),
-            beat1: self.beat1,
-            beat2: self.beat2,
-            voice: self.voice,
-            levels: lv.map(|l| l as f32 / 5.0),
-            muted: self.muted,
-            mode: match self.mode {
-                Mode::Coach => PlayMode::Coach(self.coach),
-                Mode::Loop => PlayMode::Loop,
-                _ => PlayMode::Metro,
-            },
-            count_in: self.count_in,
-        }
+        let mode = match self.mode {
+            Mode::Coach => PlayMode::Coach(self.coach),
+            Mode::Loop => PlayMode::Loop,
+            _ => PlayMode::Metro,
+        };
+        Params { mode, ..self.mem_params(&self.current_mem()) }
     }
 
+    /// What the audio engine plays for memory `m` in Loop playback.
     fn mem_params(&self, m: &Mem) -> Params {
         Params {
             tempo: m.tempo as f64,
@@ -296,7 +290,7 @@ impl Device {
             beat1: m.beat1,
             beat2: m.beat2,
             voice: m.voice,
-            levels: m.sliders.map(|v| (v as f32 / 20.0).round() / 5.0),
+            levels: m.sliders.map(|v| level(v) as f32 / 5.0),
             muted: self.muted,
             mode: PlayMode::Loop,
             count_in: self.count_in,
@@ -355,6 +349,12 @@ impl Device {
         });
     }
 
+    /// The microphone's trigger sensitivity, 1..=16, here and in the onset detector.
+    fn set_sens(&mut self, v: u8) {
+        self.sens = v;
+        self.audio.sens.store(v as u32, std::sync::atomic::Ordering::Relaxed);
+    }
+
     fn notice(&mut self, msg: &'static str) {
         self.notice = Some((msg, Instant::now()));
     }
@@ -384,7 +384,7 @@ impl Device {
         self.playing = true;
         self.show_coach_name = false;
         if self.mode == Mode::Coach {
-            self.audio_ensure_mic();
+            self.audio.ensure_mic();
         }
     }
 
@@ -403,10 +403,6 @@ impl Device {
         }
     }
 
-    fn audio_ensure_mic(&mut self) {
-        self.audio.ensure_mic();
-    }
-
     fn set_mode(&mut self, m: Mode) {
         // another screen: a flash still running on the old one ends
         self.entry_flash = None;
@@ -419,7 +415,7 @@ impl Device {
         self.mode = m;
         self.edit = None;
         if m == Mode::Coach {
-            self.audio_ensure_mic();
+            self.audio.ensure_mic();
         }
         self.sync_audio();
     }
@@ -623,11 +619,10 @@ impl Device {
         self.tones = vec![ToneMem::default(); 10];
         self.memory = 1;
         self.tone_memory = 1;
-        self.sens = 8;
+        self.set_sens(8);
         self.guide = 2;
         self.sliders = [100, 100, 0, 0, 0, self.sliders[5]];
         self.load_memory(1);
-        self.audio.sens.store(self.sens as u32, std::sync::atomic::Ordering::Relaxed);
         self.sync_audio();
         self.save();
         self.notice("Factory settings restored");
@@ -727,8 +722,7 @@ impl Device {
                 return;
             }
             Some(Edit::Sens) => {
-                self.sens = add(self.sens as i32, 1, 16) as u8;
-                self.audio.sens.store(self.sens as u32, std::sync::atomic::Ordering::Relaxed);
+                self.set_sens(add(self.sens as i32, 1, 16) as u8);
                 return;
             }
             Some(Edit::Guide) => {
@@ -872,19 +866,11 @@ impl Device {
         }
         let from_left = if self.swings % 2 == 0 { 1.0 } else { -1.0 };
         let now = st.now;
-        let pos = match (st.last, st.start) {
-            // swinging: at an edge on every beat, straight across to the other edge at an even
-            // speed in one beat (the first beat is on the left)
-            (Some(m), _) => (2.0 * ((now - m.pos as f64) / m.len).clamp(0.0, 1.0) - 1.0) * from_left,
-            // before the first sound: leave the centre START_LEAD before it, speeding up, and hit
-            // the left edge just as it sounds. With a longer output delay (Bluetooth) the sound
-            // comes later, so the needle waits in the centre first and keeps its speed.
-            (None, Some((pressed, first))) => {
-                let travel = (START_LEAD * st.sr).min(first - pressed).max(1.0);
-                let u = ((now - (first - travel)) / travel).clamp(0.0, 1.0);
-                -(u * u)
-            }
-            (None, None) => 0.0,
+        // at an edge on every beat, straight across to the other edge at an even speed in one
+        // beat (the first beat is on the left); in the centre until the first beat sounds
+        let pos = match st.last {
+            Some(m) => (2.0 * ((now - m.pos as f64) / m.len).clamp(0.0, 1.0) - 1.0) * from_left,
+            None => 0.0,
         };
         let i = (((pos + 1.0) / 2.0) * (PEND_N - 1) as f64).round() as usize;
         self.pend = i.min(PEND_N - 1);

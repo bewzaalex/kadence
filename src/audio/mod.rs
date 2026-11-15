@@ -18,11 +18,6 @@ pub use engine::{LoopStep, Params, PlayMode, Status};
 pub const TEMPO_MIN: u16 = 30;
 pub const TEMPO_MAX: u16 = 250;
 
-/// START: the first beat is heard this many seconds after the press, or as soon as the output
-/// delay allows when that is longer. The LCD needle swings out from the centre in this time and
-/// hits the edge with the first beat (a feel setting: a quick, snappy start).
-pub const START_LEAD: f64 = 0.05;
-
 use engine::Engine;
 use mic::build_mic;
 use output::{hosts, open_output};

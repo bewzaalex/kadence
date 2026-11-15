@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 
 use super::output::hosts;
 
@@ -65,39 +66,37 @@ fn open_mic(host: &cpal::Host, sens: Arc<AtomicU32>, hits: Sender<Instant>) -> R
     if let cpal::SupportedBufferSize::Range { min, max } = cfg.buffer_size() {
         config.buffer_size = cpal::BufferSize::Fixed(256u32.clamp(*min, *max));
     }
-    let mut det = Onset { sr: cfg.sample_rate() as f32, level: 0.0, armed: true, last: None };
-    let err = |e| eprintln!("kadence: mic stream error: {e}");
+    let det = Onset { sr: cfg.sample_rate() as f32, level: 0.0, armed: true, last: None };
     let stream = match cfg.sample_format() {
-        cpal::SampleFormat::F32 => dev.build_input_stream(
-            config,
-            move |d: &[f32], _| {
-                let n = d.len() / ch;
-                det.feed(d.chunks(ch).map(|f| f[0]), n, sens.load(Ordering::Relaxed), &hits);
-            },
-            err,
-            None,
-        ),
-        cpal::SampleFormat::I32 => dev.build_input_stream(
-            config,
-            move |d: &[i32], _| {
-                let n = d.len() / ch;
-                det.feed(d.chunks(ch).map(|f| f[0] as f32 / 2_147_483_648.0), n, sens.load(Ordering::Relaxed), &hits);
-            },
-            err,
-            None,
-        ),
-        cpal::SampleFormat::I16 => dev.build_input_stream(
-            config,
-            move |d: &[i16], _| {
-                let n = d.len() / ch;
-                det.feed(d.chunks(ch).map(|f| f[0] as f32 / 32768.0), n, sens.load(Ordering::Relaxed), &hits);
-            },
-            err,
-            None,
-        ),
+        SampleFormat::F32 => in_stream::<f32>(&dev, config, ch, det, sens, hits),
+        SampleFormat::I32 => in_stream::<i32>(&dev, config, ch, det, sens, hits),
+        SampleFormat::I24 => in_stream::<cpal::I24>(&dev, config, ch, det, sens, hits),
+        SampleFormat::I16 => in_stream::<i16>(&dev, config, ch, det, sens, hits),
+        SampleFormat::U16 => in_stream::<u16>(&dev, config, ch, det, sens, hits),
+        SampleFormat::U8 => in_stream::<u8>(&dev, config, ch, det, sens, hits),
         f => return Err(format!("unsupported mic sample format {f:?}")),
     }
     .map_err(|e| e.to_string())?;
     stream.play().map_err(|e| e.to_string())?;
     Ok(stream)
+}
+
+/// The input stream: the first channel of every frame, as float, into the onset detector.
+fn in_stream<T: SizedSample + Send + 'static>(
+    dev: &cpal::Device,
+    config: cpal::StreamConfig,
+    ch: usize,
+    mut det: Onset,
+    sens: Arc<AtomicU32>,
+    hits: Sender<Instant>,
+) -> Result<cpal::Stream, cpal::Error>
+where
+    f32: FromSample<T>,
+{
+    dev.build_input_stream(
+        config,
+        move |d: &[T], _| det.feed(d.chunks(ch).map(|f| f32::from_sample(f[0])), d.len() / ch, sens.load(Ordering::Relaxed), &hits),
+        |e| eprintln!("kadence: mic stream error: {e}"),
+        None,
+    )
 }

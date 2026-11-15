@@ -57,7 +57,7 @@ and the orange glow of the LCD.
 - 💾 **50 memories**, and soon a **Loop** mode that plays them in a row: build a whole practice routine or a song's tempo map.
 - 🎵 **Reference tone** from C2 to B6, with concert pitch from 438 to 445 Hz.
 - ✨ **A device on your desktop**: a backlit LCD with segment ghosts, a swinging pendulum, buttons that sink when you press them, and a borderless window shaped like the case.
-- 🪶 **Light**: one 7 MB program with no GUI toolkit. It draws with the CPU, so it runs on any graphics hardware, and all sounds are synthesized.
+- 🪶 **Light**: one 11 MB program with no GUI toolkit. The GPU puts the panel on screen (Vulkan, Metal or DX12, and OpenGL on older hardware), and all sounds are synthesized.
 
 ## Installation
 
@@ -362,7 +362,9 @@ why, and <kbd>K</kbd> or the **MIC** slots work as the pad instead.
 ```
 src/
   main.rs            entry point and the --render snapshot tool
-  ui/                app.rs (window and input), panel.rs (SVG artwork), render.rs (layers)
+  dirs.rs            where settings and the cache are kept on each system
+  ui/                app.rs (window and input), panel.rs (SVG artwork), render.rs (layers),
+                     gpu.rs (puts the layers on screen with wgpu)
   device/            mod.rs (buttons, modes, dial, memories, LCD state), store.rs (settings file)
   audio/             mod.rs (audio handle), engine.rs (sequencer), synth.rs (voices and drums),
                      patterns.rs (drum patterns), output.rs (sound output), mic.rs (Time Check input)
@@ -372,7 +374,7 @@ design/              the HTML/SVG mockup the app was built from, earlier drafts,
 docs/                TODO.md (open work), RELEASING.md (how releases are made), screenshots
 packaging/flatpak/   Flatpak manifest and crate list
 .github/             the release workflow, which builds every package from a tag
-vendor/softbuffer/   softbuffer 0.4.8, patched for transparent windows (see KADENCE-PATCH.md)
+research/gpu/        the spike that chose wgpu for drawing (wgpu vs glutin + glow, with measurements)
 ```
 
 `cargo test` runs the sequencer tests. `kadence --render out.png [button … | dial:N …]` draws the panel
@@ -382,5 +384,4 @@ this way. Open work is listed in [`docs/TODO.md`](docs/TODO.md).
 ## License
 
 Kadence is released under the [MIT License](LICENSE).
-The Noto Sans fonts are under the [SIL Open Font License 1.1](assets/fonts/OFL.txt), and the
-vendored softbuffer under MIT or Apache-2.0.
+The Noto Sans fonts are under the [SIL Open Font License 1.1](assets/fonts/OFL.txt).

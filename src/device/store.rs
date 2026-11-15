@@ -33,15 +33,7 @@ impl Default for Saved {
 }
 
 fn path() -> Option<PathBuf> {
-    let env = |k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    let base = if cfg!(windows) {
-        env("APPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library/Application Support"))
-    } else {
-        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))
-    }?;
-    Some(base.join("kadence").join("settings.txt"))
+    Some(crate::dirs::config()?.join("settings.txt"))
 }
 
 fn mem_fields(m: &Mem) -> String {

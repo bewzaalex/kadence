@@ -38,7 +38,6 @@ enum Wave {
     Sine,
     Tri,
     Square,
-    Saw,
     Noise,
 }
 
@@ -82,7 +81,6 @@ impl Comp {
             Wave::Sine => (self.phase * TAU).sin(),
             Wave::Tri => 4.0 * (self.phase - 0.5).abs() - 1.0,
             Wave::Square => if self.phase < 0.5 { 1.0 } else { -1.0 },
-            Wave::Saw => 2.0 * self.phase - 1.0,
             Wave::Noise => {
                 *rng ^= *rng << 13;
                 *rng ^= *rng >> 17;
@@ -169,24 +167,10 @@ pub(super) fn click(voice: u8, hit: Hit, gain: f32, sr: f32) -> Voice {
         // electronic metronome: clean beep
         2 => Voice::new(gain, 0.09, sr, &[Comp::new(Wave::Sine, 1050.0 * f, 0.8, 0.028, sr)]),
         // electronic click: very short, stays clear at high tempos
-        3 => Voice::new(gain, 0.02, sr, &[
+        _ => Voice::new(gain, 0.02, sr, &[
             Comp::new(Wave::Square, 2100.0 * f, 0.28, 0.004, sr),
             Comp::new(Wave::Noise, 0.0, 0.5, 0.002, sr).filt(Biquad::new(1, 3000.0, 0.7, sr)),
         ]),
-        // human-like voice: glottal saw through two formants plus a "t" burst
-        // (synthesized stand-in; a recorded voice is on the TODO list)
-        _ => {
-            let (pitch, f1, f2, len) = match hit {
-                Hit::Accent => (175.0, 760.0, 1250.0, 0.17),
-                Hit::Beat => (140.0, 700.0, 1150.0, 0.14),
-                Hit::Sub => (150.0, 300.0, 2200.0, 0.08),
-            };
-            Voice::new(gain, len, sr, &[
-                Comp::new(Wave::Saw, pitch, 3.2, len * 0.45, sr).sweep_to(pitch * 0.8, 0.2, sr).filt(Biquad::new(0, f1, 6.0, sr)),
-                Comp::new(Wave::Saw, pitch, 2.0, len * 0.4, sr).sweep_to(pitch * 0.8, 0.2, sr).filt(Biquad::new(0, f2, 8.0, sr)),
-                Comp::new(Wave::Noise, 0.0, 1.4, 0.006, sr).filt(Biquad::new(0, 4200.0, 2.0, sr)),
-            ])
-        }
     }
 }
 

@@ -1,9 +1,8 @@
 //! The window: draws the panel and turns mouse, wheel and keyboard input into panel actions.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::num::NonZeroU32;
-use std::rc::Rc;
 use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
@@ -13,19 +12,22 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+use super::gpu::Gpu;
 use super::panel::{self as svg, BUTTONS, DIAL, SLIDERS, SL_BOT, SL_TOP};
-use super::render::{Area, Gfx};
+use super::render::Gfx;
 use crate::device::{Btn, Device};
 
-const BG: u32 = 0x1d1e20;
 /// Dial degrees per value step (detent).
 const DETENT: f64 = 12.0;
 /// Near the dial's centre the hand's angle is too noisy to tell the direction; ignore it there.
 const DIAL_DEAD_RADIUS: f64 = 28.0;
+/// After the window size changes, the panel is redrawn sharp once the size has been still this
+/// long; meanwhile the GPU shows the old pictures at the new size.
+const RESCALE_DELAY: Duration = Duration::from_millis(150);
 
 struct Surface {
-    window: Rc<Window>,
-    surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
+    window: Arc<Window>,
+    gpu: Gpu,
 }
 
 enum Drag {
@@ -46,10 +48,10 @@ pub struct App {
     knob_angle: f64,
     dial_acc: f64,
     wheel_acc: f64,
-    last_sig: String,
+    last_sig: u64,
     /// window frame on (`--decorations`); otherwise the case is the window
     decorations: bool,
-    /// borderless window with see-through corners (needs alpha support: Linux, macOS)
+    /// borderless window with see-through corners (if the system's graphics allow it)
     transparent: bool,
     /// window size relative to the panel's natural size
     zoom: f64,
@@ -58,9 +60,8 @@ pub struct App {
     fps: (Instant, u32, Duration),
     /// when the next animation frame is due
     next_frame: Option<Instant>,
-    /// what changed in the last few frames presented, newest last (`None`: everything); a
-    /// buffer handed back after n frames needs the changes of those n frames redrawn
-    changes: Vec<Option<Area>>,
+    /// when to rasterize the panel at the window's new size
+    rescale_at: Option<Instant>,
 }
 
 impl App {
@@ -79,14 +80,14 @@ impl App {
             knob_angle: 0.0,
             dial_acc: 0.0,
             wheel_acc: 0.0,
-            last_sig: String::new(),
+            last_sig: 0,
             decorations,
             transparent,
             zoom: 1.0,
             ctrl: false,
             fps: (Instant::now(), 0, Duration::ZERO),
-            changes: Vec::new(),
             next_frame: None,
+            rescale_at: None,
         }
     }
 
@@ -137,7 +138,7 @@ impl App {
             }
         }
         for (i, sx) in SLIDERS.iter().enumerate() {
-            if (x - sx).abs() <= 12.0 && y >= SL_TOP - 14.0 && y <= SL_BOT + 14.0 {
+            if (x - sx).abs() <= 12.0 && (SL_TOP - 14.0..=SL_BOT + 14.0).contains(&y) {
                 self.drag = Some(Drag::Slider(i));
                 self.dev.set_slider(i, svg::slider_value(y));
                 return;
@@ -257,43 +258,47 @@ impl App {
 
     fn resize(&mut self, w: u32, h: u32) {
         self.size = (w.max(1), h.max(1));
-        self.changes.clear();
         let sf = self.win.as_ref().map(|w| w.window.scale_factor());
         debug(format_args!("resize {w}x{h} scale_factor {sf:?}"));
+        let s = self.gfx_scale();
+        let (pw, ph) = ((svg::W * s).ceil() as i32, (svg::H * s).ceil() as i32);
+        self.offset = ((self.size.0 as i32 - pw) / 2, (self.size.1 as i32 - ph) / 2);
+        if let Some(sf) = &mut self.win {
+            sf.gpu.resize(self.size.0, self.size.1);
+        }
+        // the first time right away; later once the size stops changing
+        if self.gfx.scale() == 0.0 {
+            self.rescale();
+        } else {
+            self.rescale_at = Some(Instant::now() + RESCALE_DELAY);
+        }
+        self.last_sig = 0;
+    }
+
+    /// Rasterizes the panel at the window's size.
+    fn rescale(&mut self) {
+        self.rescale_at = None;
         let s = self.gfx_scale() as f32;
         let t = Instant::now();
         self.gfx.set_scale(s);
         debug(format_args!("set_scale {s:.3} took {:?}", t.elapsed()));
-        let (pw, ph) = self.gfx.panel_px();
-        self.offset = ((self.size.0 as i32 - pw as i32) / 2, (self.size.1 as i32 - ph as i32) / 2);
-        if let Some(sf) = &mut self.win {
-            let _ = sf.surface.resize(NonZeroU32::new(self.size.0).unwrap(), NonZeroU32::new(self.size.1).unwrap());
-        }
-        self.last_sig.clear();
+        self.last_sig = 0;
     }
 
     /// Cheap summary of everything visible; a redraw happens only when it changes.
-    fn signature(&self) -> String {
+    fn signature(&self) -> u64 {
         let d = &self.dev;
         let mut h = DefaultHasher::new();
         super::lcd::lcd(d).hash(&mut h);
-        super::lcd::fan(d).hash(&mut h);
-        format!(
-            "{}|{:?}|{:?}|{:?}|{:.1}|{:?}|{}|{}",
-            h.finish(),
-            d.leds,
-            d.held,
-            d.sliders,
-            self.knob_angle,
-            d.notice.map(|n| n.0),
-            d.power,
-            (d.light_level * 100.0) as i32 + (d.ink_level * 100.0) as i32 * 1000
-        )
+        (d.pend, d.leds, &d.held, d.sliders, self.knob_angle.to_bits(), d.notice.map(|n| n.0), d.power).hash(&mut h);
+        (d.light_level.to_bits(), d.ink_level.to_bits()).hash(&mut h);
+        h.finish()
     }
 
     fn draw(&mut self) {
         let started = Instant::now();
         self.sync_size();
+        let scale = self.gfx_scale();
         let Some(sf) = &mut self.win else { return };
         let mut held = self.dev.held.clone();
         if let Some(b) = self.mouse_btn {
@@ -303,37 +308,19 @@ impl App {
         }
         // the needle's position for the moment this frame is shown
         self.dev.tick(Instant::now());
-        let frame = self.gfx.compose(&self.dev, self.knob_angle, &held);
-        let Ok(mut buf) = sf.surface.buffer_mut() else { return };
-        let (w, h) = self.size;
-        let (ox, oy) = self.offset;
-        // Usually only the fan changed. The buffer we got shows the frame from `age` frames ago
-        // (0: nothing), so redraw what changed in this frame and in the age - 1 frames since.
-        self.changes.push(frame.changed);
-        let age = buf.age() as usize;
-        let partial = if age == 0 || age > self.changes.len() { None } else { union(&self.changes[self.changes.len() - age..]) };
-        let keep = self.changes.len().saturating_sub(4);
-        self.changes.drain(..keep);
-        let (x0, y0, x1, y1) = match partial {
-            Some(a) => ((a.x + ox).max(0), (a.y + oy).max(0), (a.x + ox + a.w as i32).min(w as i32), (a.y + oy + a.h as i32).min(h as i32)),
-            None => (0, 0, w as i32, h as i32),
-        };
-        to_screen(frame.canvas, &mut buf, (w, h), (ox, oy), (x0, y0, x1, y1), self.transparent);
-        let damage = match (partial, NonZeroU32::new((x1 - x0).max(0) as u32), NonZeroU32::new((y1 - y0).max(0) as u32)) {
-            (Some(_), Some(width), Some(height)) => Some(softbuffer::Rect { x: x0 as u32, y: y0 as u32, width, height }),
-            _ => None,
-        };
-        let _ = match damage {
-            Some(r) => buf.present_with_damage(&[r]),
-            None => buf.present(),
-        };
+        self.gfx.update(&self.dev, self.knob_angle);
+        let live = self.gfx.layer_ids();
+        let sprites = self.gfx.sprites(&self.dev, &held);
+        sf.gpu.draw(&sprites, &live, scale, self.offset);
+        self.gfx.release_pixels(|id| sf.gpu.has(id));
 
         // KADENCE_DEBUG: frames per second and the average time to draw one, once a second
         let (since, frames, busy) = &mut self.fps;
         *frames += 1;
         *busy += started.elapsed();
         if since.elapsed() >= Duration::from_secs(1) {
-            debug(format_args!("{frames} frames/s, {:.1} ms to draw a frame", busy.as_secs_f64() * 1000.0 / *frames as f64));
+            let tex = self.win.as_ref().map_or(0, |sf| sf.gpu.texture_bytes()) / 1_048_576;
+            debug(format_args!("{frames} frames/s, {:.1} ms to draw a frame, {tex} MB of textures", busy.as_secs_f64() * 1000.0 / *frames as f64));
             self.fps = (Instant::now(), 0, Duration::ZERO);
         }
     }
@@ -360,11 +347,17 @@ impl ApplicationHandler for App {
             .with_inner_size(size)
             .with_min_inner_size(LogicalSize::new(svg::W * 0.4, svg::H * 0.4));
         let attrs = with_app_id(attrs);
-        let window = Rc::new(el.create_window(attrs).expect("create window"));
-        let ctx = softbuffer::Context::new(window.clone()).expect("softbuffer context");
-        let surface = softbuffer::Surface::new(&ctx, window.clone()).expect("softbuffer surface");
+        let window = Arc::new(el.create_window(attrs).expect("create window"));
+        let gpu = match Gpu::new(window.clone(), el.owned_display_handle(), self.transparent) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("kadence: {e}");
+                return el.exit();
+            }
+        };
+        debug(format_args!("{}", gpu.info));
         let ps = window.inner_size();
-        self.win = Some(Surface { window, surface });
+        self.win = Some(Surface { window, gpu });
         self.resize(ps.width, ps.height);
     }
 
@@ -440,8 +433,11 @@ impl ApplicationHandler for App {
             el.exit();
             return;
         }
+        if self.rescale_at.is_some_and(|t| now >= t) {
+            self.rescale();
+        }
         if self.gfx.poll_background() {
-            self.last_sig.clear();
+            self.last_sig = 0;
         }
         // Moving (playing, dragging, fading out): a frame on a steady clock at the display's
         // refresh rate, so every refresh shows a new needle position. Otherwise draw only when
@@ -466,7 +462,8 @@ impl ApplicationHandler for App {
                 }
             }
             let check = if self.dev.needs_animation() { 12 } else { 60 };
-            el.set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(check)));
+            let wake = now + Duration::from_millis(check);
+            el.set_control_flow(ControlFlow::WaitUntil(self.rescale_at.map_or(wake, |t| t.min(wake))));
         }
     }
 }
@@ -495,54 +492,4 @@ fn debug(msg: std::fmt::Arguments) {
         let t = START.get_or_init(Instant::now).elapsed();
         eprintln!("[{:7.3}s] {msg}", t.as_secs_f64());
     }
-}
-
-/// Converts the frame's pixels inside `area` (window pixels: x0, y0, x1, y1) into the window
-/// buffer: premultiplied ARGB for a transparent window, or blended over the background colour.
-fn to_screen(canvas: &resvg::tiny_skia::Pixmap, buf: &mut [u32], (w, _h): (u32, u32), (ox, oy): (i32, i32), (x0, y0, x1, y1): (i32, i32, i32, i32), transparent: bool) {
-    let (pw, ph) = (canvas.width() as i32, canvas.height() as i32);
-    let src = canvas.data();
-    let empty = if transparent { 0 } else { BG };
-    for y in y0..y1 {
-        let row = &mut buf[(y as usize * w as usize + x0 as usize)..(y as usize * w as usize + x1 as usize)];
-        let py = y - oy;
-        if py < 0 || py >= ph {
-            row.fill(empty);
-            continue;
-        }
-        for (x, px) in (x0..x1).zip(row.iter_mut()) {
-            let cx = x - ox;
-            *px = if cx < 0 || cx >= pw {
-                empty
-            } else {
-                let i = ((py * pw + cx) * 4) as usize;
-                let a = src[i + 3] as u32;
-                if transparent {
-                    // premultiplied ARGB straight to the compositor
-                    a << 24 | (src[i] as u32) << 16 | (src[i + 1] as u32) << 8 | src[i + 2] as u32
-                } else {
-                    // premultiplied RGBA over the window background
-                    let mix = |c: u8, bg: u32| c as u32 + bg * (255 - a) / 255;
-                    mix(src[i], BG >> 16) << 16 | mix(src[i + 1], (BG >> 8) & 255) << 8 | mix(src[i + 2], BG & 255)
-                }
-            };
-        }
-    }
-}
-
-/// The area covering all of these changes, or `None` when one of them was the whole frame.
-fn union(changes: &[Option<Area>]) -> Option<Area> {
-    let mut all: Option<Area> = None;
-    for c in changes {
-        let c = (*c)?;
-        all = Some(match all {
-            None => c,
-            Some(a) => {
-                let (x0, y0) = (a.x.min(c.x), a.y.min(c.y));
-                let (x1, y1) = ((a.x + a.w as i32).max(c.x + c.w as i32), (a.y + a.h as i32).max(c.y + c.h as i32));
-                Area { x: x0, y: y0, w: (x1 - x0) as u32, h: (y1 - y0) as u32 }
-            }
-        });
-    }
-    all
 }

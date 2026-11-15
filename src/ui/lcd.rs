@@ -159,23 +159,10 @@ impl Lcd {
         }
     }
 
-    /// The pendulum fan; `lit` is the lit bar (0 = far left), or none.
-    fn fan(&mut self, lit: Option<usize>) {
-        let n = FAN_LEFT.len();
+    /// The pendulum fan, every bar unlit; the lit bar is a layer of its own (see `fan_bar`).
+    fn fan(&mut self) {
         for i in 0..PEND_N {
-            let quad: Vec<(f64, f64)> = if i < n {
-                FAN_LEFT[i].to_vec()
-            } else {
-                // mirrored: the left bar's top-right corner becomes this bar's top-left, and so on
-                let q = FAN_LEFT[PEND_N - 1 - i];
-                [q[1], q[0], q[3], q[2]].iter().map(|&(x, y)| (2.0 * FAN_AXIS - x, y)).collect()
-            };
-            // the top edge rises to a peak in its middle, along the bar's direction
-            let (top, bottom) = (((quad[0].0 + quad[1].0) / 2.0, (quad[0].1 + quad[1].1) / 2.0), ((quad[2].0 + quad[3].0) / 2.0, (quad[2].1 + quad[3].1) / 2.0));
-            let (dx, dy) = (top.0 - bottom.0, top.1 - bottom.1);
-            let len = (dx * dx + dy * dy).sqrt();
-            let peak = (top.0 + dx / len * FAN_PEAK, top.1 + dy / len * FAN_PEAK);
-            self.poly(&[quad[0], peak, quad[1], quad[2], quad[3]], lit == Some(i));
+            self.poly(&bar_points(i), false);
         }
     }
 
@@ -255,6 +242,24 @@ impl Lcd {
     }
 }
 
+/// Fan bar `i` (0 = far left): top-left, peak, top-right, bottom-right, bottom-left.
+fn bar_points(i: usize) -> [(f64, f64); 5] {
+    let n = FAN_LEFT.len();
+    let q = if i < n {
+        FAN_LEFT[i]
+    } else {
+        // mirrored: the left bar's top-right corner becomes this bar's top-left, and so on
+        let q = FAN_LEFT[PEND_N - 1 - i];
+        [q[1], q[0], q[3], q[2]].map(|(x, y)| (2.0 * FAN_AXIS - x, y))
+    };
+    // the top edge rises to a peak in its middle, along the bar's direction
+    let (top, bottom) = (((q[0].0 + q[1].0) / 2.0, (q[0].1 + q[1].1) / 2.0), ((q[2].0 + q[3].0) / 2.0, (q[2].1 + q[3].1) / 2.0));
+    let (dx, dy) = (top.0 - bottom.0, top.1 - bottom.1);
+    let len = (dx * dx + dy * dy).sqrt();
+    let peak = (top.0 + dx / len * FAN_PEAK, top.1 + dy / len * FAN_PEAK);
+    [q[0], peak, q[1], q[2], q[3]]
+}
+
 /// The LCD's ink for the current light: lit segments, unlit segments, and the background.
 fn ink(d: &Device) -> Ink {
     // powering off turns the light and the segments off at once
@@ -275,8 +280,8 @@ fn layout_open(l: &mut Lcd, d: &Device) {
     }
 }
 
-/// The LCD: background and every segment except the pendulum fan (see `fan`), in panel
-/// coordinates. It changes only when the display changes, not while the needle swings.
+/// The LCD: background and every segment, with the pendulum fan unlit, in panel coordinates.
+/// It changes only when the display changes, not while the needle swings.
 pub fn lcd(d: &Device) -> String {
     let light = if d.backlight && d.power { d.light_level } else { 0.0 };
     let mut l = Lcd { o: String::new(), ink: ink(d), power: d.power };
@@ -287,16 +292,17 @@ pub fn lcd(d: &Device) -> String {
     }
     layout_open(&mut l, d);
     content(&mut l, d);
+    l.fan();
     l.o += "</g></g>";
     doc(&l.o, &["lcdOn", "lcdOff"], None)
 }
 
-/// The pendulum fan, on a transparent layer over `lcd`: redrawn while the needle swings, so it
-/// is kept small.
-pub fn fan(d: &Device) -> String {
+/// Fan bar `i` lit, on a transparent layer over `lcd`: one such layer for each needle position,
+/// so the needle swings without anything being redrawn.
+pub fn fan_bar(d: &Device, i: usize) -> String {
     let mut l = Lcd { o: String::new(), ink: ink(d), power: d.power };
     layout_open(&mut l, d);
-    l.fan(if d.mode == Mode::Tune { None } else { Some(d.pend) });
+    l.poly(&bar_points(i), true);
     l.o += "</g></g>";
     doc(&l.o, &[], None)
 }
@@ -307,16 +313,17 @@ pub fn glass() -> String {
     doc(&format!(r#"<rect x="{lx}" y="{ly}" width="{lw}" height="{lh}" fill="url(#glass)"/>"#), &["glass"], None)
 }
 
-/// The panel area the fan covers: (x, y, w, h).
-pub fn fan_rect() -> (f64, f64, f64, f64) {
-    let (lx, ly, lw, lh) = LCD_RECT;
+/// The panel area fan bar `i` covers: (x, y, w, h), with a unit around it for its soft edges.
+pub fn bar_rect(i: usize) -> (f64, f64, f64, f64) {
+    let (lx, ly, _, lh) = LCD_RECT;
     let s = lh / GLASS.1;
-    let ox = lx + (lw - GLASS.0 * s) / 2.0;
-    // the outermost bars reach x 62 and 837, the peaks of the middle bars y 230, the feet y 549
-    let (x0, x1, y0, y1) = (62.0, 837.0, 230.0, 550.0);
-    let p = |x: f64, y: f64| (ox + (x - ORIGIN.0) * s, ly + (y - ORIGIN.1) * s);
-    let ((ax, ay), (bx, by)) = (p(x0, y0), p(x1, y1));
-    (ax.floor(), ay.floor(), (bx - ax).ceil() + 1.0, (by - ay).ceil() + 1.0)
+    let ox = lx + (LCD_RECT.2 - GLASS.0 * s) / 2.0;
+    let p = bar_points(i);
+    let xs = p.map(|(x, _)| ox + (x - ORIGIN.0) * s);
+    let ys = p.map(|(_, y)| ly + (y - ORIGIN.1) * s);
+    let (x0, x1) = (xs.iter().copied().fold(f64::MAX, f64::min) - 1.0, xs.iter().copied().fold(f64::MIN, f64::max) + 1.0);
+    let (y0, y1) = (ys.iter().copied().fold(f64::MAX, f64::min) - 1.0, ys.iter().copied().fold(f64::MIN, f64::max) + 1.0);
+    (x0, y0, x1 - x0, y1 - y0)
 }
 
 fn content(l: &mut Lcd, d: &Device) {

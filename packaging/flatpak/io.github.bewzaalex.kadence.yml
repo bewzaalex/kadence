@@ -9,6 +9,8 @@ finish-args:
   - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11
+  # The GPU draws the panel
+  - --device=dri
   # Sound output, and the microphone for the Rhythm Coach's Time Check
   - --socket=pulseaudio
 

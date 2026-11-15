@@ -19,20 +19,8 @@ pub fn key(doc: &str, w: u32, h: u32) -> u64 {
     s.finish()
 }
 
-fn dir() -> Option<PathBuf> {
-    let env = |k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    let base = if cfg!(windows) {
-        env("LOCALAPPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library/Caches"))
-    } else {
-        env("XDG_CACHE_HOME").or_else(|| env("HOME").map(|h| h.join(".cache")))
-    }?;
-    Some(base.join("kadence"))
-}
-
 fn file(w: u32, h: u32) -> Option<PathBuf> {
-    Some(dir()?.join(format!("background-{w}x{h}.bin")))
+    Some(crate::dirs::cache()?.join(format!("background-{w}x{h}.bin")))
 }
 
 pub fn load(key: u64, w: u32, h: u32) -> Option<Pixmap> {
@@ -46,7 +34,7 @@ pub fn load(key: u64, w: u32, h: u32) -> Option<Pixmap> {
 
 /// Best effort: a failed write only means the next start draws the background again.
 pub fn save(key: u64, pm: &Pixmap) {
-    let (Some(dir), Some(path)) = (dir(), file(pm.width(), pm.height())) else { return };
+    let (Some(dir), Some(path)) = (crate::dirs::cache(), file(pm.width(), pm.height())) else { return };
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
@@ -70,7 +58,7 @@ fn prune(dir: &std::path::Path) {
         .filter(|e| e.file_name().to_string_lossy().starts_with("background-"))
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, p) in files.into_iter().skip(KEEP) {
         let _ = std::fs::remove_file(p);
     }

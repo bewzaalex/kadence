@@ -10,7 +10,9 @@ license = "MIT"
 [dependencies]
 cpal = "0.18"
 resvg = { version = "0.45", default-features = false, features = ["text", "raster-images"] }
-softbuffer = "0.4"
+pollster = "1"
+# Vulkan (Linux, Windows), Metal (macOS), DX12 (Windows), OpenGL as the fallback
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "metal", "dx12", "gles"] }
 winit = "0.30"
 
 # Linux: talk to PulseAudio / PipeWire (pipewire-pulse) directly, ALSA stays as the fallback
@@ -27,6 +29,8 @@ Kadence is a rhythm trainer for practising musicians: a backlit LCD with a swing
 five rhythm sliders, 30 drum patterns, a Rhythm Coach with Time Check through the microphone, \
 50 memories with Loop playback, count-in and a reference tone."""
 depends = "$auto"
+# the GPU is reached through Vulkan (loaded at run time, so $auto can't see it); OpenGL is the fallback
+recommends = "libvulkan1, mesa-vulkan-drivers"
 assets = [
     ["target/release/kadence", "usr/bin/", "755"],
     ["assets/io.github.bewzaalex.kadence.desktop", "usr/share/applications/", "644"],
@@ -55,7 +59,3 @@ codegen-units = 1
 strip = true
 panic = "abort"
 
-# Local softbuffer 0.4.8 with alpha kept on Wayland and macOS (transparent borderless window).
-# See vendor/softbuffer/KADENCE-PATCH.md.
-[patch.crates-io]
-softbuffer = { path = "vendor/softbuffer" }
