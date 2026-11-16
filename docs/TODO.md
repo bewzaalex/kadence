@@ -35,24 +35,21 @@
       its opening consonant so its vowel lands on the beat. Measure the timing on a reference
       recording first. The VOICE dial then goes up to 4 again (`VOICES` in src/device/mod.rs).
 - [ ] Drum sounds and patterns are synthesized; tune them by ear.
-- [ ] Memory: ~60 MB RSS at HiDPI, about half of it the GPU driver (Vulkan, RADV). Layer pixels
-      are freed once they are textures. Peaks come from resvg's filter/mask layers while the
-      background is rasterized; a background without big blur/mask layers would lower them.
-- [ ] Resizing: while the size changes the GPU shows the old pictures scaled, and the sharp
-      panel is rasterized 150 ms after the size settles (the background on a thread, cached per
-      size). The background still takes about a second at a new size; consider drawing it once at
-      the largest useful size and letting the GPU scale it down.
 - [ ] Flatpak: move to the freedesktop 26.08 runtime (the linter warns that 25.08 is outdated);
       needs the 26.08 Rust SDK extension.
-- [ ] Volume sliders: decide whether they should also move in clicked steps (like the detented
-      TEMPO/VALUE dial) instead of the current smooth analog travel.
 - [ ] Time Check accuracy depends on audio-output/mic latency estimates; add a latency calibration.
+- [ ] Keyboard shortcuts are written down in four places: the keys themselves (`key` in
+      src/ui/app.rs), the badges (`BUTTONS`) and the list (`SHORTCUTS`) in src/ui/panel.rs, and
+      the README table. A change must touch all four; consider one source.
 
 ## Release (written, not yet tested)
 - [ ] Loop playback (LOOP) and the Rhythm Coach (COACH, TRIG/GUIDE: Time Check, Quiet Count,
       Gradual and Step Up/Down) are implemented but untested, so their buttons only show
       "… is not available yet". Test them against the manual, then remove the buttons from
-      `unreleased()` in src/device/mod.rs, put the Rhythm Coach and Loop back in the metainfo
+      `unreleased()` in src/device/mod.rs, give them keys (planned: O for LOOP, C for COACH,
+      G for TRIG/GUIDE, H for a Time Check hit, with a badge on the mic: in `key` in
+      src/ui/app.rs, `BUTTONS` and `SHORTCUTS` in src/ui/panel.rs, and the README), put the
+      Rhythm Coach and Loop back in the metainfo
       features, and drop the "not available yet" notes in the README.
 
 ## Later

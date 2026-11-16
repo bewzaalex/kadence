@@ -71,6 +71,12 @@ pub struct Gfx {
     slider_caps: Vec<Layer>,
     leds: Vec<Layer>,
     notice: Option<(&'static str, Layer)>,
+    /// the keyboard shortcuts overlay, while it is shown
+    help: Option<Layer>,
+    pub show_help: bool,
+    /// the key badges on the buttons, while they are shown
+    badges: Option<Layer>,
+    pub show_badges: bool,
 }
 
 impl Gfx {
@@ -97,6 +103,10 @@ impl Gfx {
             slider_caps: Vec::new(),
             leds: Vec::new(),
             notice: None,
+            help: None,
+            show_help: false,
+            badges: None,
+            show_badges: false,
         }
     }
 
@@ -216,6 +226,8 @@ impl Gfx {
         self.bars = (0..PEND_N).map(|_| None).collect();
         self.knob = None;
         self.notice = None;
+        self.help = None;
+        self.badges = None;
         release_free_memory();
     }
 
@@ -251,6 +263,17 @@ impl Gfx {
             None => self.notice = None,
             _ => {}
         }
+        if !self.show_help {
+            self.help = None;
+        } else if self.help.is_none() {
+            let (x, y, w, h) = svg::HELP_RECT;
+            self.help = Some(self.region(&svg::help(), x, y, w, h));
+        }
+        if !self.show_badges {
+            self.badges = None;
+        } else if self.badges.is_none() {
+            self.badges = Some(self.region(&svg::badges(), 0.0, 0.0, svg::W, svg::H));
+        }
     }
 
     /// The panel for the current device state, back to front (after `update`).
@@ -271,11 +294,13 @@ impl Gfx {
         }
         out.extend(self.knob.as_ref().map(|(_, l)| l.sprite(0.0)));
         out.extend(self.notice.as_ref().map(|(_, l)| l.sprite(0.0)));
+        out.extend(self.badges.as_ref().map(|l| l.sprite(0.0)));
+        out.extend(self.help.as_ref().map(|l| l.sprite(0.0)));
         out
     }
 
     fn layers_mut(&mut self) -> impl Iterator<Item = &mut Layer> {
-        let one = [self.bg.as_mut(), self.glass.as_mut(), self.lcd.as_mut().map(|l| &mut l.1), self.knob.as_mut().map(|l| &mut l.1), self.notice.as_mut().map(|l| &mut l.1)];
+        let one = [self.bg.as_mut(), self.glass.as_mut(), self.lcd.as_mut().map(|l| &mut l.1), self.knob.as_mut().map(|l| &mut l.1), self.notice.as_mut().map(|l| &mut l.1), self.help.as_mut(), self.badges.as_mut()];
         let bars = self.bars.iter_mut().flatten().map(|b| &mut b.1);
         let many = self.caps.iter_mut().flatten().chain(&mut self.slider_caps).chain(&mut self.leds).chain(bars);
         one.into_iter().flatten().chain(many)

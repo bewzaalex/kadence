@@ -14,7 +14,7 @@ window is borderless and see-through, like Kadence's.
 ## Running
 
 ```sh
-KADENCE_SCALE=2 ../../target/release/kadence --render panel.png   # the panel picture
+KADENCE_SCALE=2 ../../../target/release/kadence --render panel.png   # the panel picture
 cargo run --release --features wgpu --bin spike-wgpu
 cargo run --release --features gl --bin spike-gl
 ```

@@ -48,16 +48,16 @@ and the orange glow of the LCD.
 
 ## Features
 
-- 🥁 **Tempo 30 to 250 BPM**: set it with the clicking dial, the mouse wheel, the arrow keys, or by tapping.
-- 🎚️ **Five rhythm sliders**: mix accents, quarter notes, eighths, sixteenths and triplets, like a drum machine for the metronome.
-- 🎶 **Beats 1 to 9, and combined meters**: alternate two bar lengths, for example 3 + 2 for a 5/4 that you feel as two groups.
-- 🪘 **30 drum patterns**: rock, shuffle, funk, jazz, Latin, waltz, march and more, with the sliders as a drum mixer.
-- 🔔 **Three click voices**: a wind-up metronome, a beep and a sharp electronic click.
-- 🎯 **Rhythm Coach** *(coming soon)*: *Time Check* listens through your microphone and shows whether you play ahead of or behind the beat. *Quiet Count* drops the click every other four bars to test your inner clock. *Gradual* and *Step Up/Down* move the tempo while you play.
-- 💾 **50 memories**, and soon a **Loop** mode that plays them in a row: build a whole practice routine or a song's tempo map.
-- 🎵 **Reference tone** from C2 to B6, with concert pitch from 438 to 445 Hz.
-- ✨ **A device on your desktop**: a backlit LCD with segment ghosts, a swinging pendulum, buttons that sink when you press them, and a borderless window shaped like the case.
-- 🪶 **Light**: one 11 MB program with no GUI toolkit. The GPU puts the panel on screen (Vulkan, Metal or DX12, and OpenGL on older hardware), and all sounds are synthesized.
+- **Tempo 30 to 250 BPM**: set it with the clicking dial, the mouse wheel, the arrow keys, or by tapping.
+- **Five rhythm sliders**: mix accents, quarter notes, eighths, sixteenths and triplets, like a drum machine for the metronome.
+- **Beats 1 to 9, and combined meters**: alternate two bar lengths, for example 3 + 2 for a 5/4 that you feel as two groups.
+- **30 drum patterns**: rock, shuffle, funk, jazz, Latin, waltz, march and more, with the sliders as a drum mixer.
+- **Three click voices**: a wind-up metronome, a beep and a sharp electronic click.
+- **Rhythm Coach** *(coming soon)*: *Time Check* listens through your microphone and shows whether you play ahead of or behind the beat. *Quiet Count* drops the click every other four bars to test your inner clock. *Gradual* and *Step Up/Down* move the tempo while you play.
+- **50 memories**, and soon a **Loop** mode that plays them in a row: build a whole practice routine or a song's tempo map.
+- **Reference tone** from C2 to B6, with concert pitch from 438 to 445 Hz.
+- **A device on your desktop**: a backlit LCD with segment ghosts, a swinging pendulum, buttons that sink when you press them, and a borderless window shaped like the case.
+- **Light**: one 11 MB program with no GUI toolkit. The GPU puts the panel on screen (Vulkan, Metal or DX12, and OpenGL on older hardware), and all sounds are synthesized.
 
 ## Installation
 
@@ -111,7 +111,7 @@ release the same way.
 
 ### From source
 
-You need [Rust](https://rustup.rs) 1.85 or newer. On Linux you also need the ALSA development
+You need [Rust](https://rustup.rs) 1.87 or newer. On Linux you also need the ALSA development
 files (`alsa-lib` on Arch and Gentoo, `libasound2-dev` on Debian and Ubuntu, `alsa-lib-devel`
 on Fedora).
 
@@ -158,7 +158,7 @@ To uninstall, delete those three files.
 ### The panel
 
 Click the buttons, drag the orange sliders and turn the dial. The dial clicks in steps, one value per click. Drag it in a circle near its edge, scroll
-over it, or use the arrow keys.
+over it, or use the arrow keys: up and down step by one, right and left by ten.
 
 **Settings stay open.** Pressing a setting's button (BEAT/PATTERN, VOICE, MEMORY, PITCH,
 TRIG/GUIDE …) makes its label blink, and the dial then changes it. It stays open until you press
@@ -238,7 +238,7 @@ Press **VOICE** and turn the dial to choose the click sound:
 
 ### Count-in
 
-Press **BEAT/PATTERN** and **VOICE** together (or <kbd>C</kbd>) to turn the count-in on, and turn
+Press **BEAT/PATTERN** and **VOICE** together (or <kbd>B</kbd> + <kbd>V</kbd>) to turn the count-in on, and turn
 the dial to set it from 1 to 8 beats. Kadence then counts you in with a distinct sound before
 the first bar. Press both buttons again to turn it off.
 
@@ -271,7 +271,7 @@ Press **COACH** to enter the Rhythm Coach, and press it again to cycle through i
 
 For Time Check, **TRIG/GUIDE** sets the microphone sensitivity (1 to 16), and pressing it again
 sets how strict the check is (1 to 3). If you have no microphone, click the **MIC** slots on the
-panel or press <kbd>K</kbd> on each hit.
+panel on each hit.
 
 ### Reference tone
 
@@ -284,29 +284,35 @@ Press **TUNE** for a reference tone. Turn the dial to choose the note from C2 to
 **LIGHT** switches the LCD backlight on and off, and Kadence remembers your choice. **POWER**
 switches the display off and closes Kadence; everything you changed is already saved.
 
-To restore the factory settings, hold **MEMORY** (or <kbd>E</kbd>) and press **POWER**
-(or <kbd>P</kbd>). Kadence stops, resets every memory and setting, and keeps running.
+To restore the factory settings, hold **MEMORY** (or <kbd>R</kbd>) and press **POWER**.
+Kadence stops, resets every memory and setting, and keeps running.
 
 The **LOOP**, **COACH**, **TRIG/GUIDE** and **MIDI** buttons only say that their function isn't available yet.
 
 ## Keyboard shortcuts
 
+Most keys are the first letter of a button. Press <kbd>K</kbd> to see each button's key on a
+badge, and <kbd>F1</kbd> or <kbd>?</kbd> (or the <kbd>?</kbd> key under the screen) for this list
+in the app.
+
 | Key | Action |
 | --- | --- |
 | <kbd>Space</kbd> or <kbd>Enter</kbd> | START/STOP |
-| <kbd>↑</kbd> <kbd>→</kbd> / <kbd>↓</kbd> <kbd>←</kbd> | Turn the dial one click up / down |
 | <kbd>T</kbd> | TAP |
-| <kbd>B</kbd> / <kbd>V</kbd> | BEAT/PATTERN / VOICE |
-| <kbd>C</kbd> | Count-in on/off |
+| <kbd>↑</kbd> <kbd>+</kbd> / <kbd>↓</kbd> <kbd>−</kbd>, mouse wheel | Turn the dial one click up / down |
+| <kbd>→</kbd> / <kbd>←</kbd> | Turn the dial ten clicks up / down |
 | <kbd>M</kbd> | MUTE |
+| <kbd>Esc</kbd> | Back: close the key badges or an open setting, else the TEMPO screen |
+| <kbd>A</kbd> / <kbd>P</kbd> | TUNE / PITCH |
+| <kbd>B</kbd> / <kbd>V</kbd> | BEAT/PATTERN / VOICE |
+| <kbd>B</kbd> + <kbd>V</kbd> | Count-in on/off (both together, as on the panel) |
+| <kbd>R</kbd> / <kbd>W</kbd> | MEMORY / WRITE |
 | <kbd>L</kbd> | LIGHT |
-| <kbd>W</kbd> / <kbd>E</kbd> | WRITE / MEMORY |
-| <kbd>1</kbd> … <kbd>7</kbd> | TEMPO, LOOP, TUNE, PITCH, COACH, TRIG/GUIDE, MIDI (LOOP, COACH, TRIG/GUIDE and MIDI aren't available yet) |
-| <kbd>K</kbd> | A hit for Time Check |
-| <kbd>P</kbd> | POWER: switch off and quit |
-| <kbd>E</kbd> + <kbd>P</kbd> | Restore factory settings |
+| <kbd>K</kbd> | Show or hide the keys on the buttons |
+| <kbd>F1</kbd> or <kbd>?</kbd> | This list, with the version; a click or <kbd>Esc</kbd> closes it |
+| <kbd>Ctrl</kbd>+<kbd>Q</kbd> | POWER: switch off and quit |
+| Hold <kbd>R</kbd>, click POWER | Restore factory settings |
 | <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>−</kbd> / <kbd>Ctrl</kbd>+<kbd>0</kbd> | Bigger / smaller / default window size |
-| <kbd>Ctrl</kbd>+<kbd>Q</kbd> | Quit |
 
 ## Settings file
 
@@ -369,12 +375,12 @@ src/
   audio/             mod.rs (audio handle), engine.rs (sequencer), synth.rs (voices and drums),
                      patterns.rs (drum patterns), output.rs (sound output), mic.rs (Time Check input)
 assets/              fonts, case texture, panel lettering, icon, desktop entry, AppStream metainfo
-design/              the HTML/SVG mockup the app was built from, earlier drafts, and logo/: the
-                     panel lettering (lettering.js; `node design/logo/export.js` updates the app)
-docs/                TODO.md (open work), RELEASING.md (how releases are made), screenshots
+docs/                TODO.md (open work), RELEASING.md (how releases are made), screenshots,
+                     research/gpu/ (the spike that chose wgpu for drawing, with measurements),
+                     design/: the HTML/SVG mockup the app was built from, earlier drafts, and
+                     logo/, the panel lettering (`node docs/design/logo/export.js` updates the app)
 packaging/flatpak/   Flatpak manifest and crate list
 .github/             the release workflow, which builds every package from a tag
-research/gpu/        the spike that chose wgpu for drawing (wgpu vs glutin + glow, with measurements)
 ```
 
 `cargo test` runs the sequencer tests. `kadence --render out.png [button … | dial:N …]` draws the panel

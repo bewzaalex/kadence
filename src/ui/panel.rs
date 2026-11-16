@@ -1,4 +1,4 @@
-//! SVG sources for every part of the panel (port of design/mockup/panel.js).
+//! SVG sources for every part of the panel (port of docs/design/mockup/panel.js).
 //!
 //! The case is split into a static background and small dynamic layers (knob, button caps,
 //! slider caps, LEDs; the LCD is in `lcd.rs`) so only what changes is re-rendered.
@@ -11,6 +11,8 @@ use crate::device::Btn;
 pub const W: f64 = 610.0;
 pub const H: f64 = 800.0;
 pub const DIAL: (f64, f64) = (492.0, 524.0);
+/// The dial's radius, to the outside of its knurled ring.
+const DIAL_R: f64 = 89.0;
 pub const SLIDERS: [f64; 6] = [70.0, 112.0, 154.0, 196.0, 238.0, 300.0];
 pub const SL_TOP: f64 = 494.0;
 pub const SL_BOT: f64 = 610.0;
@@ -37,6 +39,8 @@ pub enum Style {
     Boxed,
     Light,
     Single,
+    /// a small key of the same black glass as the screen panel, with a chamfered rim
+    Glass,
 }
 
 pub struct ButtonDef {
@@ -49,29 +53,34 @@ pub struct ButtonDef {
     pub style: Style,
     pub size: f64,
     pub rim: bool,
+    /// its key, shown on a badge (K); empty: none (a function not released yet has no key)
+    pub key: &'static str,
 }
 
-const fn b(id: Btn, cx: f64, cy: f64, w: f64, h: f64, label: &'static str, style: Style, size: f64, rim: bool) -> ButtonDef {
-    ButtonDef { id, cx, cy, w, h, label, style, size, rim }
+#[allow(clippy::too_many_arguments)]
+const fn b(id: Btn, cx: f64, cy: f64, w: f64, h: f64, label: &'static str, style: Style, size: f64, rim: bool, key: &'static str) -> ButtonDef {
+    ButtonDef { id, cx, cy, w, h, label, style, size, rim, key }
 }
 
-pub const BUTTONS: [ButtonDef; 16] = [
-    b(Btn::Power, 384.0, 322.0, 60.0, 34.0, "POWER", Style::Boxed, 9.6, true),
-    b(Btn::Light, 458.0, 322.0, 60.0, 34.0, "LIGHT", Style::Plain, 9.6, false),
-    b(Btn::Mute, 532.0, 322.0, 60.0, 34.0, "MUTE", Style::Plain, 9.6, false),
-    b(Btn::Write, 384.0, 378.0, 60.0, 34.0, "WRITE", Style::Plain, 9.6, true),
-    b(Btn::Memory, 458.0, 378.0, 60.0, 34.0, "MEMORY", Style::Plain, 8.8, false),
-    b(Btn::Midi, 532.0, 378.0, 60.0, 34.0, "MIDI", Style::Plain, 9.6, false),
-    b(Btn::Tempo, 75.0, 670.0, 60.0, 36.0, "TEMPO", Style::Plain, 9.6, false),
-    b(Btn::Loop, 150.0, 670.0, 60.0, 36.0, "LOOP", Style::Plain, 9.6, false),
-    b(Btn::Tune, 225.0, 670.0, 60.0, 36.0, "TUNE", Style::Boxed, 9.6, false),
-    b(Btn::Coach, 300.0, 670.0, 60.0, 36.0, "COACH", Style::Light, 9.6, false),
-    b(Btn::Beat, 75.0, 724.0, 60.0, 36.0, "BEAT/PATTERN", Style::Plain, 9.4, false),
-    b(Btn::Voice, 150.0, 724.0, 60.0, 36.0, "VOICE", Style::Plain, 9.6, false),
-    b(Btn::Pitch, 225.0, 724.0, 60.0, 36.0, "PITCH", Style::Boxed, 9.6, false),
-    b(Btn::Trig, 300.0, 724.0, 60.0, 36.0, "TRIG/GUIDE", Style::Light, 9.4, false),
-    b(Btn::Tap, 380.0, 697.0, 54.0, 90.0, "TAP", Style::Plain, 12.0, false),
-    b(Btn::Start, 494.0, 697.0, 132.0, 90.0, "START/STOP", Style::Single, 13.0, false),
+pub const BUTTONS: [ButtonDef; 17] = [
+    b(Btn::Power, 384.0, 322.0, 60.0, 34.0, "POWER", Style::Boxed, 9.6, true, "Ctrl+Q"),
+    b(Btn::Light, 458.0, 322.0, 60.0, 34.0, "LIGHT", Style::Plain, 9.6, false, "L"),
+    b(Btn::Mute, 532.0, 322.0, 60.0, 34.0, "MUTE", Style::Plain, 9.6, false, "M"),
+    b(Btn::Write, 384.0, 378.0, 60.0, 34.0, "WRITE", Style::Plain, 9.6, true, "W"),
+    b(Btn::Memory, 458.0, 378.0, 60.0, 34.0, "MEMORY", Style::Plain, 8.8, false, "R"),
+    b(Btn::Midi, 532.0, 378.0, 60.0, 34.0, "MIDI", Style::Plain, 9.6, false, ""),
+    b(Btn::Tempo, 75.0, 670.0, 60.0, 36.0, "TEMPO", Style::Plain, 9.6, false, "Esc"),
+    b(Btn::Loop, 150.0, 670.0, 60.0, 36.0, "LOOP", Style::Plain, 9.6, false, ""),
+    b(Btn::Tune, 225.0, 670.0, 60.0, 36.0, "TUNE", Style::Boxed, 9.6, false, "A"),
+    b(Btn::Coach, 300.0, 670.0, 60.0, 36.0, "COACH", Style::Light, 9.6, false, ""),
+    b(Btn::Beat, 75.0, 724.0, 60.0, 36.0, "BEAT/PATTERN", Style::Plain, 9.4, false, "B"),
+    b(Btn::Voice, 150.0, 724.0, 60.0, 36.0, "VOICE", Style::Plain, 9.6, false, "V"),
+    b(Btn::Pitch, 225.0, 724.0, 60.0, 36.0, "PITCH", Style::Boxed, 9.6, false, "P"),
+    b(Btn::Trig, 300.0, 724.0, 60.0, 36.0, "TRIG/GUIDE", Style::Light, 9.4, false, ""),
+    b(Btn::Tap, 380.0, 697.0, 54.0, 90.0, "TAP", Style::Plain, 12.0, false, "T"),
+    b(Btn::Start, 494.0, 697.0, 132.0, 90.0, "START/STOP", Style::Single, 13.0, false, "Space"),
+    // under the screen, in line with the VOL slider
+    b(Btn::Help, 300.0, 446.0, 26.0, 20.0, "?", Style::Glass, 12.5, false, "F1"),
 ];
 
 // ------------------------------------------------------------------ defs
@@ -100,6 +109,7 @@ const DEFS: &[(&str, &str)] = &[
     ("knurlShade", r##"<linearGradient id="knurlShade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.35"/><stop offset="0.45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#5a2a00" stop-opacity="0.55"/></linearGradient>"##),
     ("bump", r##"<radialGradient id="bump" cx="0.35" cy="0.3" r="0.75"><stop offset="0" stop-color="#ffe2a3"/><stop offset="0.5" stop-color="#ffab1e"/><stop offset="1" stop-color="#c46c00"/></radialGradient>"##),
     ("dimpleWall", r##"<linearGradient id="dimpleWall" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9a5000" stop-opacity="0.8"/><stop offset="0.5" stop-color="#ffa30f" stop-opacity="0"/><stop offset="1" stop-color="#ffe7b0" stop-opacity="0.9"/></linearGradient>"##),
+    ("glassChamfer", r##"<linearGradient id="glassChamfer" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#76797c"/><stop offset="0.45" stop-color="#232426"/><stop offset="1" stop-color="#000"/></linearGradient>"##),
     ("black", r##"<linearGradient id="black" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#151617"/><stop offset="1" stop-color="#0c0c0d"/></linearGradient>"##),
     ("btnGrad", r##"<linearGradient id="btnGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#303134"/><stop offset="0.6" stop-color="#1d1e20"/><stop offset="1" stop-color="#131314"/></linearGradient>"##),
     ("capGrad", r##"<linearGradient id="capGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffc24a"/><stop offset="0.5" stop-color="#ffa514"/><stop offset="1" stop-color="#e88e06"/></linearGradient>"##),
@@ -191,6 +201,9 @@ pub fn knob(angle: f64) -> String {
 // ------------------------------------------------------------------ buttons / caps / LEDs
 
 pub fn button_cap(bd: &ButtonDef, pressed: bool) -> String {
+    if bd.style == Style::Glass {
+        return glass_cap(bd, pressed);
+    }
     let (cx, cy, w, h, size) = (bd.cx, bd.cy, bd.w, bd.h, bd.size);
     let (x, y) = (cx - w / 2.0, cy - h / 2.0);
     let parts: Vec<&str> = bd.label.split('/').collect();
@@ -231,6 +244,29 @@ pub fn button_cap(bd: &ButtonDef, pressed: bool) -> String {
     doc(&o, &["btnGrad", "capEdge", "capTop", "blur1"], None)
 }
 
+/// A black glass key: a chamfered rim lit from the top left, the face with the screen's sheen,
+/// and its label printed like the case's lettering.
+fn glass_cap(bd: &ButtonDef, pressed: bool) -> String {
+    let (cx, cy, w, h) = (bd.cx, bd.cy, bd.w, bd.h);
+    let (x, y) = (cx - w / 2.0, cy - h / 2.0);
+    let tr = if pressed {
+        let s = 0.955;
+        format!(r#" transform="translate({},{}) scale({s})""#, cx * (1.0 - s), cy * (1.0 - s))
+    } else {
+        String::new()
+    };
+    let mut o = format!("<g{tr}>");
+    let _ = write!(o, r##"<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="3.5" fill="url(#glassChamfer)"/>"##);
+    let _ = write!(o, r##"<rect x="{}" y="{}" width="{}" height="{}" rx="2.2" fill="url(#black)"/>"##, x + 1.6, y + 1.6, w - 3.2, h - 3.2);
+    let _ = write!(o, r##"<rect x="{}" y="{}" width="{}" height="{}" rx="2.2" fill="url(#glass)"/>"##, x + 1.6, y + 1.6, w - 3.2, h - 3.2);
+    let _ = write!(o, r#"<text x="{cx}" y="{}" font-size="{}" text-anchor="middle" fill="{PRINT}">{}</text>"#, cy + bd.size * 0.36, bd.size, bd.label);
+    if pressed {
+        let _ = write!(o, r##"<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="3.5" fill="#000" opacity="0.3"/>"##);
+    }
+    o += "</g>";
+    doc(&o, &["glassChamfer", "black", "glass"], None)
+}
+
 /// Slider cap drawn at y = 0 (moved by the compositor).
 pub fn slider_cap(i: usize) -> String {
     let x = SLIDERS[i];
@@ -260,6 +296,92 @@ pub fn led_lit(i: usize) -> String {
     doc(&o, &["glow"], None)
 }
 
+/// The keyboard shortcuts overlay's area: (x, y, w, h).
+pub const HELP_RECT: (f64, f64, f64, f64) = (95.0, 128.0, 420.0, 505.0);
+
+/// Keyboard shortcuts: (keys, what they do).
+const SHORTCUTS: &[(&str, &str)] = &[
+    ("Space / Enter", "START/STOP"),
+    ("T", "TAP"),
+    ("Up / Down, + / −, wheel", "Turn the dial one click"),
+    ("Right / Left", "Turn the dial ten clicks"),
+    ("M", "MUTE"),
+    ("Esc", "Back: close, else the TEMPO screen"),
+    ("A / P", "TUNE / PITCH"),
+    ("B / V", "BEAT/PATTERN / VOICE"),
+    ("B + V", "Count-in"),
+    ("R / W", "MEMORY / WRITE"),
+    ("L", "LIGHT"),
+    ("K", "Show the keys on the buttons"),
+    ("F1 / ?", "This list"),
+    ("Ctrl+Q", "POWER: switch off and quit"),
+    ("Hold R, click POWER", "Restore factory settings"),
+    ("Ctrl + / − / 0", "Window size"),
+];
+
+/// The keyboard shortcuts and the version, over the panel, in the notice's style.
+pub fn help() -> String {
+    let (x, y, w, h) = HELP_RECT;
+    let mid = x + 170.0;
+    let mut o = format!(r##"<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="10" fill="#141517" opacity="0.96"/>"##);
+    let _ = write!(o, r##"<text x="{}" y="{}" font-size="15" fill="#e6e7e8" text-anchor="middle">Keyboard shortcuts</text>"##, x + w / 2.0, y + 32.0);
+    let _ = write!(
+        o,
+        r##"<text x="{}" y="{}" font-size="10" font-weight="normal" fill="#8d9195" text-anchor="middle">Kadence {}</text>"##,
+        x + w / 2.0,
+        y + 50.0,
+        env!("CARGO_PKG_VERSION")
+    );
+    o += r#"<g font-size="12" font-weight="normal">"#;
+    for (i, (keys, what)) in SHORTCUTS.iter().enumerate() {
+        let ty = y + 82.0 + i as f64 * 25.0;
+        let _ = write!(o, r##"<text x="{}" y="{ty}" fill="#ffa514" text-anchor="end">{keys}</text><text x="{}" y="{ty}" fill="#e6e7e8">{what}</text>"##, mid - 8.0, mid + 8.0);
+    }
+    let _ = write!(o, r##"</g><text x="{}" y="{}" font-size="10" font-weight="normal" fill="#8d9195" text-anchor="middle">Click anywhere or press Esc to close</text>"##, x + w / 2.0, y + h - 16.0);
+    doc(&o, &[], None)
+}
+
+/// Key badges: height, text size, and the width of one character and of the padding around them.
+const BADGE_H: f64 = 18.0;
+const BADGE_TEXT: f64 = 12.0;
+const BADGE_CHAR: f64 = 7.0;
+const BADGE_PAD: f64 = 10.0;
+/// How far a badge reaches over the corner it sits on, to the right and down.
+const BADGE_OVER: f64 = 4.0;
+
+fn badge_width(key: &str) -> f64 {
+    BADGE_PAD + key.chars().count() as f64 * BADGE_CHAR
+}
+
+/// A key badge on the panel, its bottom-right corner at (right, bottom).
+fn badge(o: &mut String, right: f64, bottom: f64, key: &str) {
+    let (w, top) = (badge_width(key), bottom - BADGE_H);
+    let _ = write!(
+        o,
+        r##"<rect x="{}" y="{top}" width="{w}" height="{BADGE_H}" rx="4" fill="#141517" opacity="0.94"/><text x="{}" y="{}" font-size="{BADGE_TEXT}" fill="#ffa514" text-anchor="middle">{key}</text>"##,
+        right - w,
+        right - w / 2.0,
+        bottom - 5.0
+    );
+}
+
+/// A key badge sitting on the top-right corner (x, y) of what it labels.
+fn corner_badge(o: &mut String, x: f64, y: f64, key: &str) {
+    badge(o, x + BADGE_OVER, y + BADGE_OVER, key);
+}
+
+/// Every button's key on a badge on its top-right corner, plus the dial's (K).
+pub fn badges() -> String {
+    let mut o = String::new();
+    for bd in BUTTONS.iter().filter(|bd| !bd.key.is_empty()) {
+        corner_badge(&mut o, bd.cx + bd.w / 2.0, bd.cy - bd.h / 2.0, bd.key);
+    }
+    // the dial's badge is centred on its top edge
+    let dial = "+ / −";
+    badge(&mut o, DIAL.0 + badge_width(dial) / 2.0, DIAL.1 - DIAL_R + BADGE_OVER, dial);
+    doc(&o, &[], None)
+}
+
 pub fn notice(text: &str) -> String {
     let w = 30.0 + text.len() as f64 * 6.6;
     let x = W / 2.0 - w / 2.0;
@@ -284,6 +406,11 @@ fn milled(o: &mut String, x: f64, y: f64, w: f64, h: f64, r: f64) {
 
 fn button_socket(o: &mut String, bd: &ButtonDef) {
     let (x, y, w, h) = (bd.cx - bd.w / 2.0, bd.cy - bd.h / 2.0, bd.w, bd.h);
+    if bd.style == Style::Glass {
+        // a thin dark gap in the glass panel, like the screen's bezel
+        let _ = write!(o, r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4.5" fill="#020202" stroke="#2a2a2a" stroke-width="0.8"/>"##, x - 1.5, y - 1.5, w + 3.0, h + 3.0);
+        return;
+    }
     if bd.rim {
         // wider chamfer around POWER / WRITE so they can be found blind
         let _ = write!(o, r##"<rect x="{}" y="{}" width="{}" height="{}" rx="8.5" fill="url(#chamferBig)"/><rect x="{}" y="{}" width="{}" height="{}" rx="8.5" fill="none" stroke="#2c2e30" stroke-width="0.7" opacity="0.6"/>"##,
@@ -298,7 +425,7 @@ pub fn background(paint_uri: &str) -> String {
     o += r#"<clipPath id="bodyClip"><rect x="6" y="6" width="598" height="784" rx="24"/></clipPath>"#;
     o += body_paint();
 
-    // black top panel with the lettering (drawn in design/logo/, exported to assets/) and LEDs
+    // black top panel with the lettering (drawn in docs/design/logo/, exported to assets/) and LEDs
     o += r#"<path d="M36,470 V43 a5,5 0 0,1 5,-5 H329 a5,5 0 0,1 5,5 V470 Z" fill="url(#black)"/>"#;
     o += include_str!("../../assets/lettering.svg");
     for (i, (x, y)) in LEDS.iter().enumerate() {

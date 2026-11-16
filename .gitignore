@@ -2,4 +2,4 @@
 # Flatpak builds (packaging/flatpak/README.md)
 /build/
 # local reference material, not part of the project
-/design/reference/
+/docs/design/reference/

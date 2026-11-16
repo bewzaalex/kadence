@@ -35,5 +35,6 @@ modules:
           - .git
           - build
           - target
-          - design/reference
+          - docs/design/reference
+          - docs/research/gpu/target
       - cargo-sources.json

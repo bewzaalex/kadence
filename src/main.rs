@@ -30,6 +30,10 @@ fn render_snapshot(dev: &mut Device, args: &[String]) {
     let at = std::env::var("KADENCE_AT_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
     dev.tick(now + Duration::from_millis(at));
     let mut g = ui::render::Gfx::new();
+    // "help" shows the keyboard shortcuts overlay (its key in the app)
+    g.show_help = args[1..].iter().any(|a| a.eq_ignore_ascii_case("help"));
+    // "keys" shows the key badges on the buttons (K in the app)
+    g.show_badges = args[1..].iter().any(|a| a.eq_ignore_ascii_case("keys"));
     g.set_scale(std::env::var("KADENCE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0));
     g.finish_background();
     let t = Instant::now();

@@ -9,7 +9,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::{Key, KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use super::gpu::Gpu;
@@ -56,6 +56,10 @@ pub struct App {
     /// window size relative to the panel's natural size
     zoom: f64,
     ctrl: bool,
+    /// the keyboard shortcuts overlay is open
+    help: bool,
+    /// each button shows its key
+    badges: bool,
     /// KADENCE_DEBUG: frames drawn and draw time since the last report
     fps: (Instant, u32, Duration),
     /// when the next animation frame is due
@@ -85,6 +89,8 @@ impl App {
             transparent,
             zoom: 1.0,
             ctrl: false,
+            help: false,
+            badges: false,
             fps: (Instant::now(), 0, Duration::ZERO),
             next_frame: None,
             rescale_at: None,
@@ -125,14 +131,35 @@ impl App {
         }
     }
 
+    /// Opens or closes the keyboard shortcuts overlay.
+    fn set_help(&mut self, on: bool) {
+        self.help = on;
+        self.gfx.show_help = on;
+        self.last_sig = 0;
+    }
+
+    /// Shows or hides the key badges on the buttons.
+    fn set_badges(&mut self, on: bool) {
+        self.badges = on;
+        self.gfx.show_badges = on;
+        self.last_sig = 0;
+    }
+
     fn mouse_down(&mut self) {
         self.sync_size();
+        // the shortcuts overlay: any click closes it
+        if self.help {
+            return self.set_help(false);
+        }
         let (x, y) = self.to_panel(self.cursor);
         debug(format_args!("click {:?} -> panel ({x:.1},{y:.1}) size {:?} offset {:?} scale {:.3}", self.cursor, self.size, self.offset, self.gfx_scale()));
         let now = Instant::now();
         for bd in &BUTTONS {
             if (x - bd.cx).abs() <= bd.w / 2.0 && (y - bd.cy).abs() <= bd.h / 2.0 {
                 self.mouse_btn = Some(bd.id);
+                if bd.id == Btn::Help {
+                    return self.set_help(true);
+                }
                 self.dev.button_down(bd.id, now);
                 return;
             }
@@ -211,39 +238,32 @@ impl App {
         self.drag = None;
     }
 
+    /// Keys for the panel: mostly the first letter of a button's name (see `BUTTONS` for the
+    /// badges and the README for the list). Held keys hold their buttons, so B + V together is
+    /// count-in, and holding R while clicking POWER restores the factory settings, as on the panel.
     fn key(&mut self, code: KeyCode, pressed: bool, repeat: bool) {
         let now = Instant::now();
         match code {
-            KeyCode::ArrowUp | KeyCode::ArrowRight if pressed => return self.turn(DETENT),
-            KeyCode::ArrowDown | KeyCode::ArrowLeft if pressed => return self.turn(-DETENT),
-            KeyCode::KeyK if pressed && !repeat => return self.dev.pad_hit(now),
-            KeyCode::KeyC if pressed && !repeat => {
-                // COUNT IN: [BEAT/PATTERN] + [VOICE] together
-                self.dev.button_down(Btn::Voice, now);
-                self.dev.button_down(Btn::Beat, now);
-                self.dev.button_up(Btn::Beat, now);
-                self.dev.button_up(Btn::Voice, now);
-                return;
-            }
+            // the dial: ↑ ↓ + − one click, → ← ten
+            KeyCode::ArrowUp | KeyCode::Equal | KeyCode::NumpadAdd if pressed => return self.turn(DETENT),
+            KeyCode::ArrowDown | KeyCode::Minus | KeyCode::NumpadSubtract if pressed => return self.turn(-DETENT),
+            KeyCode::ArrowRight if pressed => return self.turn(10.0 * DETENT),
+            KeyCode::ArrowLeft if pressed => return self.turn(-10.0 * DETENT),
+            KeyCode::KeyK if pressed && !repeat => return self.set_badges(!self.badges),
+            KeyCode::Escape if pressed && !repeat => return self.back(now),
             _ => {}
         }
         let b = match code {
             KeyCode::Space | KeyCode::Enter => Btn::Start,
             KeyCode::KeyT => Btn::Tap,
-            KeyCode::KeyL => Btn::Light,
             KeyCode::KeyM => Btn::Mute,
+            KeyCode::KeyL => Btn::Light,
             KeyCode::KeyB => Btn::Beat,
             KeyCode::KeyV => Btn::Voice,
-            KeyCode::KeyP => Btn::Power,
+            KeyCode::KeyR => Btn::Memory,
             KeyCode::KeyW => Btn::Write,
-            KeyCode::KeyE => Btn::Memory,
-            KeyCode::Digit1 => Btn::Tempo,
-            KeyCode::Digit2 => Btn::Loop,
-            KeyCode::Digit3 => Btn::Tune,
-            KeyCode::Digit4 => Btn::Pitch,
-            KeyCode::Digit5 => Btn::Coach,
-            KeyCode::Digit6 => Btn::Trig,
-            KeyCode::Digit7 => Btn::Midi,
+            KeyCode::KeyA => Btn::Tune,
+            KeyCode::KeyP => Btn::Pitch,
             _ => return,
         };
         if repeat {
@@ -253,6 +273,16 @@ impl App {
             self.dev.button_down(b, now);
         } else {
             self.dev.button_up(b, now);
+        }
+    }
+
+    /// Esc: closes what is on top: the key badges, then an open setting; else the TEMPO screen.
+    fn back(&mut self, now: Instant) {
+        if self.badges {
+            self.set_badges(false);
+        } else if !self.dev.close_setting() {
+            self.dev.button_down(Btn::Tempo, now);
+            self.dev.button_up(Btn::Tempo, now);
         }
     }
 
@@ -291,7 +321,7 @@ impl App {
         let mut h = DefaultHasher::new();
         super::lcd::lcd(d).hash(&mut h);
         (d.pend, d.leds, &d.held, d.sliders, self.knob_angle.to_bits(), d.notice.map(|n| n.0), d.power).hash(&mut h);
-        (d.light_level.to_bits(), d.ink_level.to_bits()).hash(&mut h);
+        (d.light_level.to_bits(), d.ink_level.to_bits(), self.help, self.badges).hash(&mut h);
         h.finish()
     }
 
@@ -402,6 +432,11 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
                 let pressed = event.state == ElementState::Pressed;
+                // F1 or ? opens and closes the shortcuts overlay, Esc closes it
+                let question = matches!(&event.logical_key, Key::Character(c) if c == "?");
+                if pressed && (code == KeyCode::F1 || question || (code == KeyCode::Escape && self.help)) {
+                    return self.set_help(!self.help && code != KeyCode::Escape);
+                }
                 match code {
                     // no title bar: Ctrl+Q turns the app off like POWER
                     KeyCode::KeyQ if pressed && self.ctrl => self.dev.shut_down(Instant::now()),

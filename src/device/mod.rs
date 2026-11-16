@@ -24,6 +24,8 @@ pub enum Btn {
     Trig,
     Tap,
     Start,
+    /// the keyboard shortcuts overlay (handled by the window, not the device)
+    Help,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -475,6 +477,7 @@ impl Device {
             }
             Btn::Write => self.write(now, prev == Some(Edit::Write)),
             Btn::Midi => self.notice("MIDI input is not implemented yet"),
+            Btn::Help => {}
             Btn::Tempo => {
                 if self.mode != Mode::Metro {
                     self.set_mode(Mode::Metro);
@@ -577,6 +580,11 @@ impl Device {
                 }
             }
         }
+    }
+
+    /// Closes the setting being changed, if one is open (Esc); false when none was.
+    pub fn close_setting(&mut self) -> bool {
+        self.edit.take().is_some()
     }
 
     /// POWER turns the app off: playback stops, the display goes dark and the app quits.
