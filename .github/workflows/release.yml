@@ -6,6 +6,7 @@
 # See docs/RELEASING.md.
 
 name: Release
+run-name: ${{ github.ref_type == 'tag' && format('Kadence {0}', github.ref_name) || format('Dry run on {0}', github.ref_name) }}
 
 on:
   push:
