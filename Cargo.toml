@@ -1,8 +1,8 @@
 [package]
 name = "kadence"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 description = "Rhythm-trainer metronome with a backlit LCD and a clicking tempo dial"
 repository = "https://github.com/bewzaalex/kadence"
 license = "MIT"

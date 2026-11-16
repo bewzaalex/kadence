@@ -29,11 +29,11 @@
   <screenshots>
     <screenshot type="default">
       <caption>The panel with the LCD backlight on</caption>
-      <image>https://raw.githubusercontent.com/bewzaalex/kadence/v0.2.0/docs/screenshots/backlit.png</image>
+      <image>https://raw.githubusercontent.com/bewzaalex/kadence/v0.3.0/docs/screenshots/backlit.png</image>
     </screenshot>
     <screenshot>
       <caption>A drum pattern, with each instrument's level on the LCD</caption>
-      <image>https://raw.githubusercontent.com/bewzaalex/kadence/v0.2.0/docs/screenshots/pattern.png</image>
+      <image>https://raw.githubusercontent.com/bewzaalex/kadence/v0.3.0/docs/screenshots/pattern.png</image>
     </screenshot>
   </screenshots>
   <description>
@@ -48,6 +48,21 @@
     </ul>
   </description>
   <releases>
+    <release version="0.3.0" date="2026-11-16">
+      <url type="details">https://github.com/bewzaalex/kadence/releases/tag/v0.3.0</url>
+      <description>
+        <p>The panel is drawn by the GPU now, and the keyboard shortcuts can be seen in the app.</p>
+        <ul>
+          <li>The GPU puts the panel on screen (Vulkan, Metal, DX12, or OpenGL): smooth resizing, and the needle swings without anything being redrawn</li>
+          <li>New ? key under the screen (or F1, or ?): the keyboard shortcuts and the version</li>
+          <li>K shows each button's key on a badge</li>
+          <li>New keys, mostly a button's first letter: A for TUNE, P for PITCH, R for MEMORY, Esc to go back; right and left turn the dial ten clicks; Ctrl+Q quits (P alone no longer does)</li>
+          <li>START plays the first beat at once</li>
+          <li>Slider caps line up with the scale's ticks at both ends</li>
+          <li>24-bit and 8-bit sound devices are supported</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-11-15">
       <url type="details">https://github.com/bewzaalex/kadence/releases/tag/v0.2.0</url>
       <description>
