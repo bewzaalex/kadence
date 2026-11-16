@@ -22,7 +22,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Versions agree (tag, Cargo.toml, metainfo)
         id: version
         run: |
@@ -45,7 +45,7 @@ jobs:
     env:
       VERSION: ${{ needs.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build dependencies
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
       - run: rustup toolchain install stable --profile minimal && rustup default stable
@@ -70,7 +70,7 @@ jobs:
           ls -l dist
           dpkg-deb --info dist/*.deb && dpkg-deb --contents dist/*.deb
           tar -tzvf dist/*.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux
           path: dist/*
@@ -89,14 +89,14 @@ jobs:
     env:
       BUNDLE: kadence-${{ needs.check.outputs.version }}-x86_64.flatpak
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
         with:
           manifest-path: packaging/flatpak/io.github.bewzaalex.kadence.yml
           bundle: ${{ env.BUNDLE }}
           cache-key: flatpak-builder-${{ github.sha }}
           upload-artifact: false
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: flatpak
           path: ${{ env.BUNDLE }}
@@ -113,8 +113,8 @@ jobs:
       VERSION: ${{ needs.check.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
